@@ -147,3 +147,39 @@ $('#serialConnect').onclick=async()=>{
 };
 $('#serialSave').onclick=async()=>{let name=$('#wifiName').value,pass=$('#wifiPassword').value;if(!name||/[\t\r\n]/.test(name+pass)||new TextEncoder().encode(name).length>32||new TextEncoder().encode(pass).length>63){$('#serialStatus').textContent='請檢查 Wi-Fi 名稱與密碼。';return}try{await serialWrite(`WIFI\t${name}\t${pass}`);$('#wifiPassword').value='';$('#serialStatus').textContent='正在設定 Wi-Fi…'}catch(e){$('#serialStatus').textContent='USB 傳送失敗。'}};
 $('#serialDisconnect').onclick=async()=>{serialReading=false;try{await serialReader?.cancel();await serialPort?.close()}catch(e){}serialPort=null;$('#serialSave').disabled=true;$('#serialDisconnect').disabled=true;$('#serialConnect').disabled=false;$('#serialStatus').textContent='USB 已結束。'};
+
+// Prebuilt ESP32-C3 images: only these four flash regions are written; NVS is not deliberately erased.
+const firmwareImages=[
+ {name:'bootloader.bin',address:0x0,sha:'9b2fa5e4af7cf282b2db5ed726b26bcca0aec7946eb3fdacc14444195ba754b3'},
+ {name:'partitions.bin',address:0x8000,sha:'148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1'},
+ {name:'boot_app0.bin',address:0xe000,sha:'f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0'},
+ {name:'firmware.bin',address:0x10000,sha:'e1a7a2ec2b6a443cd11625ad08c456d142e65f8d20a45dc419f31b3d2ca6fab4'}
+];
+$('#flashFirmware').onclick=async()=>{
+ const status=$('#flashStatus'),button=$('#flashFirmware'),progress=$('#flashProgress');
+ if(!('serial' in navigator)){status.textContent='請使用電腦版 Chrome 或 Edge 開啟 HTTPS 網頁。';return}
+ if(serialPort){status.textContent='請先按「結束 USB」，再進行燒錄。';return}
+ let transport=null,port=null,finished=false,resetOk=true;
+ try{
+  // Keep requestPort inside the user gesture, before network or dynamic imports.
+  port=await navigator.serial.requestPort();button.disabled=true;$('#serialConnect').disabled=true;status.textContent='準備韌體…';progress.hidden=false;progress.value=0;
+  const [{ESPLoader,Transport},{md5},...responses]=await Promise.all([import('./vendor/esptool-js-0.7.1.js'),import('./vendor/rover-md5.js'),...firmwareImages.map(f=>fetch('./firmware/bin/'+f.name,{cache:'no-cache'}))]);
+  const files=[];for(let i=0;i<responses.length;i++){
+   if(!responses[i].ok)throw new Error('無法下載韌體檔案');let data=new Uint8Array(await responses[i].arrayBuffer());let digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));let hex=Array.from(digest,v=>v.toString(16).padStart(2,'0')).join('');if(hex!==firmwareImages[i].sha)throw new Error('韌體檔案檢查失敗，請重新整理後再試');files.push({data,address:firmwareImages[i].address});
+  }
+  transport=new Transport(port,true);const terminal={clean(){},writeLine(){},write(){}};
+  const loader=new ESPLoader({transport,baudrate:115200,terminal});status.textContent='正在辨識板子，請稍候…';const chip=await loader.main();
+  if(!/^ESP32-C3\b/.test(chip))throw new Error('偵測到 '+chip+'，只支援 ESP32-C3');
+  const size=await loader.detectFlashSize();if(!size||!/^\d+MB$/.test(size)||parseInt(size,10)<4)throw new Error('無法確認至少 4MB 的快閃記憶體，已停止燒錄');
+  let completed=0;const total=files.reduce((sum,f)=>sum+f.data.length,0);status.textContent='正在燒錄，請勿拔除 USB…';
+  await loader.writeFlash({fileArray:files,flashMode:'dio',flashFreq:'80m',flashSize:'4MB',eraseAll:false,compress:true,calculateMD5Hash:md5,reportProgress:(i,written,fileTotal)=>{completed=files.slice(0,i).reduce((sum,f)=>sum+f.data.length,0);progress.value=Math.min(99,Math.round((completed+files[i].data.length*(fileTotal?written/fileTotal:0))/total*100))}});
+  finished=true;progress.value=100;try{await loader.after('hard_reset')}catch(e){resetOk=false}
+  status.textContent=resetOk?'燒錄完成並驗證成功。接著按「讀取小車」設定 Wi-Fi。':'燒錄完成並驗證成功。請重新插拔 USB，再按「讀取小車」。';
+ }catch(e){
+  if(e?.name==='NotFoundError')status.textContent='已取消選擇序列埠。';
+  else {console.error('Flash failed',e);status.textContent='燒錄未完成：'+(e?.message||'請檢查 USB 連接')+'。可按住 BOOT、按一下 RESET 後重試。'}
+ }finally{
+  if(transport){try{await transport.disconnect()}catch(e){if(finished)status.textContent='燒錄完成並驗證成功。請重新插拔 USB，再按「讀取小車」。'}}
+  button.disabled=false;$('#serialConnect').disabled=!!serialPort;
+ }
+};
