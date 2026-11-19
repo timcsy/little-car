@@ -106,12 +106,12 @@ function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=
 function paintConnection(state){
  const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
  connectionStatus.textContent=messages[state]||state;
- $('#carConnect').textContent=state==='owner'?'控制中':carConnected?'已連線':'連接小車';$$('.mobile-car-connect').forEach(b=>b.textContent=state==='owner'?'控制中':carConnected?'已連線':'連線');
+ $('#carConnect').textContent=state==='owner'?'控制中':carConnected?'已連線':'連接小車';$('#navConnect').setAttribute('aria-label',state==='owner'?'小車已連線，目前由你控制':carConnected?'小車已連線':'連接小車');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
  $('#connectSubmit').disabled=state==='connecting'||carConnected;
 }
 function lostControl(){if(carOwner){runToken++;sim={left:0,right:0};carMotor={a:0,b:0};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
-$('#carConnect').onclick=()=>dialog.showModal();$$('.mobile-car-connect').forEach(b=>b.onclick=()=>dialog.showModal());$('#connectClose').onclick=()=>dialog.close();
+$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){connectionStatus.textContent='請輸入區域網路 IP 與 6 位數配對碼。';return}
