@@ -104,7 +104,7 @@ let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false;
 const dialog=$('#connectDialog'), ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 function paintConnection(state){
- const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗，請確認 IP、配對碼及網路。'};
+ const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
  connectionStatus.textContent=messages[state]||state;
  $('#carConnect').textContent=state==='owner'?'控制中':carConnected?'已連線':'連接小車';$$('.mobile-car-connect').forEach(b=>b.textContent=state==='owner'?'控制中':carConnected?'已連線':'連線');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
@@ -115,7 +115,7 @@ $('#carConnect').onclick=()=>dialog.showModal();$$('.mobile-car-connect').forEac
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){connectionStatus.textContent='請輸入區域網路 IP 與 6 位數配對碼。';return}
- let ws;try{ws=new WebSocket(`ws://${ip}:81/`)}catch(e){paintConnection('error');return}
+ let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){paintConnection('error');return}
  const epoch=++connectionEpoch;carSocket=ws;store('rover_car_ip',ip);paintConnection('connecting');
  const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){ws.close();paintConnection('error')}},8000);
  ws.onopen=()=>{if(epoch===connectionEpoch)ws.send('AUTH:'+code)};
