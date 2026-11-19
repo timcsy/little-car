@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 455" role="img" aria-labelledby="title desc">
+<title id="title">小車接線總覽</title><desc id="desc">電池盒接到降壓模組，降為五伏後分別供應控制板與馬達驅動板，控制板連到驅動板，驅動板連到兩顆馬達。</desc>
+<rect width="800" height="455" rx="18" fill="#f7f9fd"/>
+<g font-family="system-ui, sans-serif" fill="#293a57" text-anchor="middle">
+<g><rect x="22" y="171" width="126" height="88" rx="12" fill="#394653"/><text x="85" y="205" fill="white" font-size="18" font-weight="700">電池盒</text><text x="85" y="232" fill="white" font-size="14">兩顆 18650</text></g>
+<g><rect x="229" y="171" width="141" height="88" rx="12" fill="#3275d2"/><text x="299" y="205" fill="white" font-size="18" font-weight="700">LM2596</text><text x="299" y="232" fill="white" font-size="14">調整為 5V</text></g>
+<g><rect x="470" y="35" width="150" height="80" rx="12" fill="#303840"/><text x="545" y="70" fill="white" font-size="18" font-weight="700">SuperMini C3</text><text x="545" y="94" fill="white" font-size="14">控制板</text></g>
+<g><rect x="470" y="302" width="150" height="80" rx="12" fill="#303840"/><text x="545" y="336" fill="white" font-size="18" font-weight="700">DRV8833</text><text x="545" y="360" fill="white" font-size="14">馬達驅動板</text></g>
+<g><rect x="668" y="275" width="105" height="62" rx="12" fill="#f3cb40"/><text x="720" y="312" font-size="17" font-weight="700">左馬達</text><rect x="668" y="355" width="105" height="62" rx="12" fill="#f3cb40"/><text x="720" y="392" font-size="17" font-weight="700">右馬達</text></g>
+<g font-size="14" font-weight="700"><text x="190" y="161">電池電源</text><text x="411" y="194">5V / GND</text><text x="575" y="203">4 條控制線</text><text x="684" y="251">各 2 條</text></g></g>
+<g fill="none" stroke-linecap="round" stroke-width="5"><path stroke="#df5c55" d="M148 198 H229"/><path stroke="#45505e" d="M148 232 H229"/><path stroke="#df5c55" d="M370 196 H408 V63 H470"/><path stroke="#45505e" d="M370 235 H420 V88 H470"/><path stroke="#df5c55" d="M408 196 V326 H470"/><path stroke="#45505e" d="M420 235 V354 H470"/><path stroke="#6298e4" d="M545 115 V302" stroke-dasharray="8 7"/><path stroke="#7b67c7" d="M620 326 H644 V306 H668"/><path stroke="#7b67c7" d="M620 354 H645 V386 H668"/></g></svg>
