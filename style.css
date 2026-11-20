@@ -139,3 +139,5 @@
 .share-group-title{font-size:14px;color:#64748b;margin:8px 2px 0}.share-empty{font-size:14px;color:#8794a8;margin:2px 4px}.share-button-color{width:15px;height:15px;flex:none;border-radius:50%;border:1px solid #0002}.share-choices input{flex:none}
 
 .share-shortcuts{display:flex;gap:6px;margin:0 0 8px}.share-dialog .share-shortcuts button{flex:1;padding:7px 6px;font-size:13px;min-width:0}
+
+.share-choices .share-group-title label{border:0;padding:3px 0;gap:10px;color:#536782;font-size:14px}.share-choices .share-group-title input{width:18px;height:18px;accent-color:#4c97ff}
