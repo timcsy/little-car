@@ -141,3 +141,5 @@
 .share-shortcuts{display:flex;gap:6px;margin:0 0 8px}.share-dialog .share-shortcuts button{flex:1;padding:7px 6px;font-size:13px;min-width:0}
 
 .share-choices .share-group-title label{border:0;padding:3px 0;gap:10px;color:#536782;font-size:14px}.share-choices .share-group-title input{width:18px;height:18px;accent-color:#4c97ff}
+
+.serial-setup .wifi-intro{color:#64748b;font-size:14px}.serial-setup .wifi-step{border-top:1px solid #e4eaf2;padding:12px 0}.serial-setup .wifi-step h3{font-size:16px;margin:0 0 6px;display:flex;align-items:center;gap:8px}.wifi-step h3 span{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#e6f0ff;color:#2468c5;font-size:13px}.serial-setup .wifi-step p{font-size:14px;line-height:1.5;color:#586b85;margin:6px 0}.serial-setup .wifi-step label{margin:8px 0}.wifi-status{border-radius:10px;padding:10px 12px;background:#f1f6fc;color:#345778;line-height:1.5;overflow-wrap:anywhere}.firmware-setup{border-top:1px solid #e4eaf2;margin-top:12px;padding-top:12px}.firmware-setup p{font-size:14px;line-height:1.5}
