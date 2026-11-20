@@ -129,6 +129,10 @@ function paintConnection(state){
 function lostControl(){if(carOwner){rejectCalibration('控制權已交出，校正未完成。');runToken++;sim={left:0,right:0};carMotor={frame:null};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
 
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
+function rememberPairCode(key,value){if(/^\d{6}$/.test(value)||!value)store(key,value)}
+function applyCarPairCode(value){codeInput.value=value;rememberPairCode('rover_car_code',value);const group=$('#peerCode');if(!group.disabled){group.value=value;rememberPairCode('rover_peer_code',value);group.dispatchEvent(new Event('input',{bubbles:true}))}}
+const rememberedCarCode=read('rover_car_code',''),rememberedPeerCode=read('rover_peer_code',null);if(typeof rememberedCarCode==='string'&&/^\d{6}$/.test(rememberedCarCode))codeInput.value=rememberedCarCode;if(typeof rememberedPeerCode==='string'&&/^\d{6}$/.test(rememberedPeerCode))$('#peerCode').value=rememberedPeerCode;else if(rememberedPeerCode===null&&/^\d{6}$/.test(codeInput.value))$('#peerCode').value=codeInput.value;
+codeInput.addEventListener('input',()=>rememberPairCode('rover_car_code',codeInput.value.trim()));
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請輸入區域網路 IP 與 6 位數配對碼。','error');return}
  let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){paintConnection('error');return}
@@ -136,7 +140,7 @@ $('#connectSubmit').onclick=()=>{
  const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){ws.close();paintConnection('error')}},8000);
  ws.onopen=()=>{if(epoch===connectionEpoch)ws.send('AUTH:'+code)};
  ws.onmessage=e=>{if(epoch!==connectionEpoch||typeof e.data!=='string')return;
-  if(e.data==='AUTH:OK'){clearTimeout(timer);carConnected=true;paintConnection('free');calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
+  if(e.data==='AUTH:OK'){clearTimeout(timer);applyCarPairCode(code);carConnected=true;paintConnection('free');calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
   else if(e.data==='CAPS:SHARE1'){shareSupported=true}
   else if(e.data==='CAPS:CAL1'){carCalSupported=true;sendCar('CALCLIENT:1')}
   else if(e.data.startsWith('CAL:')||e.data.startsWith('CALSAVED:')||e.data.startsWith('CALERROR:')){handleCalibrationMessage(e.data)}
@@ -167,7 +171,7 @@ function startSerialHandshake(){clearInterval(serialHandshakeTimer);serialAcknow
 function serialStatusLine(line){
  const parts=line.split('\t');
  if(parts[0]==='PAIR'&&validLocalIP(parts[1])&&/^\d{6}$/.test(parts[2])){
-  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=carConnected;ipInput.value=parts[1];codeInput.value=parts[2];store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的分享組屬於另一台小車；如需切換，請先離開分享組。');$('#serialStatus').textContent=carConnected?'已連接小車！組員可以掃描上方的 QR Code 加入。':'小車已連上 Wi-Fi！接著按「連接小車」。';
+  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=carConnected;ipInput.value=parts[1];applyCarPairCode(parts[2]);store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的分享組屬於另一台小車；如需切換，請先離開分享組。');$('#serialStatus').textContent=carConnected?'已連接小車！組員可以掃描上方的 QR Code 加入。':'小車已連上 Wi-Fi！接著按「連接小車」。';
   if(lastSerialState!=='PAIR'||wasAttempt)serialLog('小車已連上 Wi-Fi；IP：'+parts[1]+'，配對碼已填入。');lastSerialState='PAIR';return;
  }
  if(parts[0]==='STATUS'){
@@ -243,7 +247,7 @@ async function handleScannedCar(){
  history.replaceState(history.state,'',location.pathname+location.search);
  if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('QR Code 的小車資訊無效。');return}
  const alreadyConnected=carConnected||carSocket?.readyState===WebSocket.CONNECTING;
- ipInput.value=ip;codeInput.value=code;$('#carQrPanel').hidden=true;showPage('connection');setConnectionPanel('car');
+ ipInput.value=ip;applyCarPairCode(code);$('#carQrPanel').hidden=true;showPage('connection');setConnectionPanel('car');
  if(alreadyConnected){connectionStatus.textContent='已填入新的小車資訊；請先斷線，再按「連線」。';return}
  let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
  if(permission==='granted'){$('#connectSubmit').click()}
@@ -348,7 +352,7 @@ function newPeer(PeerCtor,id){return id?new PeerCtor(id):new PeerCtor()}
 function makePeer(PeerCtor,id,timeout=8000){return new Promise((resolve,reject)=>{let p=newPeer(PeerCtor,id),done=false,timer=setTimeout(()=>finish(Error('配對服務沒有回應。')),timeout);function finish(e){if(done)return;done=true;clearTimeout(timer);if(e){p.destroy();reject(e)}else resolve(p)}p.on('open',()=>finish());p.on('error',e=>finish(e))})}
 function clearPeerCandidates(){for(const c of peerCandidates)try{c.connection?.close()}catch(e){}peerCandidates=[];$('#peerCandidates').replaceChildren();$('#peerCandidates').hidden=true}
 function closePeerGroup(message='已離開分享組。'){peerEpoch++;peerStarting=false;clearPeerCandidates();peerRequests=[];if(peerActiveRequest){try{peerActiveRequest.close()}catch(e){}peerActiveRequest=null}if(peerRequestDialog.open)peerRequestDialog.close();for(const c of peerGuests)try{c.close()}catch(e){}peerGuests.clear();let upstream=peerUpstream;peerUpstream=null;if(upstream)try{upstream.close()}catch(e){}if(peerNode)try{peerNode.destroy()}catch(e){}peerNode=null;peerRole=null;peerCodeValue='';peerReceive=null;if(peerSendWait){clearTimeout(peerSendWait.timer);peerSendWait.reject(Error('分享組已中斷。'));peerSendWait=null}paintPeer();peerStatusText(message)}
-$('#peerLeave').onclick=()=>closePeerGroup();$('#peerCode').addEventListener('input',paintPeer);$('#peerCreate').onclick=()=>startPeerHost($('#peerCode').value.trim());
+$('#peerLeave').onclick=()=>closePeerGroup();$('#peerCode').addEventListener('input',()=>{rememberPairCode('rover_peer_code',$('#peerCode').value.trim());paintPeer()});$('#peerCreate').onclick=()=>startPeerHost($('#peerCode').value.trim());
 async function startPeerHost(code){if(!/^\d{6}$/.test(code))return;if(peerRole||peerStarting)return;peerStarting=true;peerCodeValue=code;let epoch=++peerEpoch;$('#peerCode').value=code;paintPeer();peerStatusText('正在建立分享組…');try{const PeerCtor=await loadPeerLibrary(),base=await peerCandidateBase(code);for(let slot=0;slot<PEER_SLOTS;slot++){if(epoch!==peerEpoch)return;try{let node=await makePeer(PeerCtor,base+'-'+slot);if(epoch!==peerEpoch){node.destroy();return}peerNode=node;peerRole='host';peerStarting=false;peerVerification=String(crypto.getRandomValues(new Uint32Array(1))[0]%10000).padStart(4,'0');node.on('connection',onPeerIncoming);node.on('disconnected',()=>{if(peerNode===node)closePeerGroup('分享組配對服務已中斷，請重新建立。')});node.on('error',e=>{if(peerNode===node&&e.type!=='peer-unavailable')peerStatusText('分享組發生連線問題，請重新建立。')});paintPeer();return}catch(e){if(e?.type==='unavailable-id')continue;throw e}}throw Error('這組配對碼的分享組已額滿，請找老師協助。')}catch(e){if(epoch!==peerEpoch)return;peerStarting=false;peerCodeValue='';paintPeer();peerStatusText('無法建立分享組：'+(e.message||'請確認網路。'))}}
 function onPeerIncoming(conn){if(peerRole!=='host'){conn.close();return}let approved=false,requested=false,expiry=setTimeout(()=>{if(!approved)conn.close()},45000);conn.on('open',()=>{});conn.on('data',data=>{if(!data||typeof data!=='object'||typeof data.t!=='string')return;if(!approved){if(data.t==='probe'){conn.send({t:'info',v:1,verify:peerVerification});return}if(data.t==='request'&&!requested){requested=true;if(peerGuests.size>=PEER_MAX||peerRequests.length>=PEER_MAX){conn.send({t:'denied'});conn.close();return}peerRequests.push(conn);showPeerRequest();return}return}hostPeerMessage(conn,data)});conn.on('close',()=>{clearTimeout(expiry);peerRequests=peerRequests.filter(x=>x!==conn);if(peerActiveRequest===conn){peerActiveRequest=null;if(peerRequestDialog.open)peerRequestDialog.close();showPeerRequest()}if(peerGuests.delete(conn))paintPeer()});conn.on('error',()=>{try{conn.close()}catch(e){}});conn._approve=()=>{approved=true;clearTimeout(expiry);peerGuests.add(conn);conn.send({t:'approved'});paintPeer()}}
 function showPeerRequest(){if(peerActiveRequest||!peerRequests.length||peerRole!=='host')return;peerActiveRequest=peerRequests.shift();$('#peerRequestText').textContent='核對碼 '+peerVerification+'。請讓組員確認畫面上的核對碼相同。';if(!peerRequestDialog.open)peerRequestDialog.showModal()}
