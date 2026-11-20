@@ -13,6 +13,19 @@ int owner = -1;
 unsigned long lastOwner = 0, lastMotor = 0;
 String pairCode, serialLine;
 bool wasConnected = false;
+int shareSender = -1;
+unsigned long shareLast = 0;
+unsigned shareNext = 0, shareTotal = 0;
+String shareId;
+void shareBroadcast(String message, int except = -1) {
+  for (int i=0; i<WEBSOCKETS_SERVER_CLIENT_MAX; ++i) if (authorized[i] && i!=except) ws.sendTXT(i, message);
+}
+void reportState();
+void shareAbort() {
+  if (shareSender < 0) return;
+  shareBroadcast("SHARE:ABORT:" + shareId);
+  shareSender=-1; shareId=""; shareNext=shareTotal=0; reportState();
+}
 
 void motorStop() { for (int p : pins) ledcWrite(p, 0); }
 void drive(int a, int b) {
@@ -39,17 +52,43 @@ void reportSerial() {
 void event(uint8_t n, WStype_t type, uint8_t *payload, size_t length) {
   if (n >= WEBSOCKETS_SERVER_CLIENT_MAX) return;
   if (type == WStype_CONNECTED) { authorized[n] = false; return; }
-  if (type == WStype_DISCONNECTED) { authorized[n] = false; if (owner == n) releaseOwner(); return; }
-  if (type != WStype_TEXT || length > 100) return;
+  if (type == WStype_DISCONNECTED) { authorized[n] = false; if (shareSender == n) shareAbort(); if (owner == n) releaseOwner(); return; }
+  if (type != WStype_TEXT || length > 1100) return;
   String msg; msg.reserve(length); for (size_t i=0; i<length; ++i) msg += char(payload[i]);
   if (!authorized[n]) {
-    if (msg == "AUTH:" + pairCode) { authorized[n] = true; ws.sendTXT(n, "AUTH:OK"); reportState(); }
+    if (msg == "AUTH:" + pairCode) { authorized[n] = true; ws.sendTXT(n, "AUTH:OK"); ws.sendTXT(n, "CAPS:SHARE1"); reportState(); }
     else { ws.sendTXT(n, "AUTH:FAIL"); ws.disconnect(n); }
     return;
   }
-  if (msg == "ESTOP") { releaseOwner(); return; }
+  if (msg == "ESTOP") { shareAbort(); releaseOwner(); return; }
+  if (msg.startsWith("SHARE:BEGIN:")) {
+    if (shareSender>=0 || length>100) { ws.sendTXT(n,"SHARE:ERROR"); return; }
+    int a=msg.indexOf(':',12), b=msg.indexOf(':',a+1);
+    String id=msg.substring(12,a), count=msg.substring(a+1,b), size=msg.substring(b+1);
+    if(a<0 || b<0 || id.length()!=12 || count.length()>3 || size.length()>6) {ws.sendTXT(n,"SHARE:ERROR");return;}
+    for (unsigned i=0;i<id.length();i++) if (!isHexadecimalDigit(id[i])) {ws.sendTXT(n,"SHARE:ERROR");return;}
+    for (unsigned i=0;i<count.length();i++) if (!isDigit(count[i])) {ws.sendTXT(n,"SHARE:ERROR");return;}
+    for (unsigned i=0;i<size.length();i++) if (!isDigit(size[i])) {ws.sendTXT(n,"SHARE:ERROR");return;}
+    unsigned total=count.toInt(), bytes=size.toInt(), peers=0;
+    for(int i=0;i<WEBSOCKETS_SERVER_CLIENT_MAX;i++) if(authorized[i] && i!=n) peers++;
+    if(!peers || !total || total>220 || !bytes || bytes>131072) {ws.sendTXT(n,"SHARE:ERROR");return;}
+    releaseOwner(); shareSender=n; shareId=id; shareTotal=total; shareNext=0; shareLast=millis();
+    shareBroadcast(msg,n); ws.sendTXT(n,"SHARE:ACK:"+id+":BEGIN"); return;
+  }
+  if (msg.startsWith("SHARE:CHUNK:")) {
+    if (n!=shareSender) return;
+    int a=msg.indexOf(':',12), b=msg.indexOf(':',a+1);
+    if(a<0 || b<0 || msg.substring(12,a)!=shareId || msg.substring(a+1,b)!=String(shareNext) || msg.length()-b-1>800 || msg.length()==b+1) {shareAbort();return;}
+    for(unsigned i=b+1;i<msg.length();i++) {char c=msg[i];if(!isalnum(c) && c!='+' && c!='/' && c!='='){shareAbort();return;}}
+    shareBroadcast(msg,n); ws.sendTXT(n,"SHARE:ACK:"+shareId+":"+String(shareNext)); shareNext++; shareLast=millis(); return;
+  }
+  if (msg.startsWith("SHARE:END:")) {
+    if(n==shareSender && msg.substring(10)==shareId && shareNext==shareTotal) {shareBroadcast(msg,n);ws.sendTXT(n,"SHARE:ACK:"+shareId+":END");shareSender=-1;shareId="";reportState();} return;
+  }
+  if (msg.startsWith("SHARE:CANCEL:")) {if(n==shareSender) shareAbort();return;}
+  if (length>100) return;
   if (msg == "STOP" && n == owner) { motorStop(); lastMotor=0; ws.sendTXT(n,"STOPPED"); return; }
-  if (msg == "CLAIM") { if (owner < 0) { motorStop(); owner=n; lastOwner=millis(); lastMotor=0; } reportState(); return; }
+  if (msg == "CLAIM") { if (owner < 0 && shareSender < 0) { motorStop(); owner=n; lastOwner=millis(); lastMotor=0; } reportState(); return; }
   if (msg == "RELEASE") { if (owner == n) releaseOwner(); else reportState(); return; }
   if (n != owner) return;
   if (msg == "PING") { lastOwner=millis(); return; }
@@ -68,7 +107,7 @@ void handleSerial(String line) {
     int split=line.indexOf('\t',5); if (split<0) { Serial.println("ERROR\tFORMAT"); return; }
     String ssid=line.substring(5,split), password=line.substring(split+1);
     if (!ssid.length() || ssid.length()>32 || password.length()>63) { Serial.println("ERROR\tWIFI"); return; }
-    releaseOwner(); ws.disconnect(); for(bool &a:authorized)a=false;
+    shareAbort(); releaseOwner(); ws.disconnect(); for(bool &a:authorized)a=false;
     prefs.putString("ssid",ssid); prefs.putString("password",password);
     Serial.println("STATUS\tCONNECTING"); WiFi.disconnect(); WiFi.begin(ssid.c_str(),password.c_str());
   }
@@ -84,8 +123,9 @@ void loop() {
   ws.loop();
   while(Serial.available()) { char c=Serial.read(); if(c=='\n'){handleSerial(serialLine);serialLine="";} else if(c!='\r' && serialLine.length()<160)serialLine+=c; }
   bool connected=WiFi.status()==WL_CONNECTED;
-  if(connected != wasConnected){wasConnected=connected;if(connected)reportSerial();else {releaseOwner();ws.disconnect();for(bool &a:authorized)a=false;Serial.println("STATUS\tDISCONNECTED");}}
+  if(connected != wasConnected){wasConnected=connected;if(connected)reportSerial();else {shareAbort();releaseOwner();ws.disconnect();for(bool &a:authorized)a=false;Serial.println("STATUS\tDISCONNECTED");}}
   unsigned long now=millis();
+  if(shareSender>=0 && (unsigned long)(now-shareLast)>10000) shareAbort();
   if(owner>=0 && (unsigned long)(now-lastOwner)>OWNER_TIMEOUT_MS) releaseOwner();
   if(owner>=0 && lastMotor && (unsigned long)(now-lastMotor)>MOTOR_TIMEOUT_MS) releaseOwner();
   delay(1);

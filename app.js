@@ -3,7 +3,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let workspace, sim={left:0,right:0}, runToken=0, timerStarted=0,timerElapsed=0,timerId=null;
 let carConnected=false, carOwner=false, carSocket=null, carMotor={a:0,b:0};function requireCar(){if(!carConnected){notify('小車未連線，請先連線。');return false}if(!carOwner){notify('請先取得控制權。');return false}return true}
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};const read=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
-function notify(text,kind){const n=$('#notice'),dialog=document.querySelector('#connectDialog'),isError=kind==='error'||(!kind&&/(失敗|錯誤|無法|未連線|尚未連線|找不到|缺少|無效|請先|先輸入|中斷|不支援)/.test(text));const host=dialog?.open?dialog:document.body;if(n.parentNode!==host)host.appendChild(n);$('#noticeText').textContent=text;n.classList.toggle('error',isError);n.setAttribute('role',isError?'alert':'status');n.classList.add('show');clearTimeout(notify.id);notify.id=setTimeout(()=>n.classList.remove('show'),isError?7000:3500)}
+function notify(text,kind){const n=$('#notice'),dialog=document.querySelector('#receiveDialog[open]')||document.querySelector('#shareDialog[open]')||document.querySelector('#connectDialog'),isError=kind==='error'||(!kind&&/(失敗|錯誤|無法|未連線|尚未連線|找不到|缺少|無效|請先|先輸入|中斷|不支援)/.test(text));const host=dialog?.open?dialog:document.body;if(n.parentNode!==host)host.appendChild(n);$('#noticeText').textContent=text;n.classList.toggle('error',isError);n.setAttribute('role',isError?'alert':'status');n.classList.add('show');clearTimeout(notify.id);notify.id=setTimeout(()=>n.classList.remove('show'),isError?7000:3500)}
 $('#noticeClose').onclick=()=>{clearTimeout(notify.id);$('#notice').classList.remove('show')};
 function showPage(id){document.body.classList.toggle('blocks-page',id==='blocks');document.body.classList.toggle('controller-page',id==='controller');document.body.classList.toggle('calibration-page',id==='calibration');document.body.classList.remove('controller-panel-open');$$('.page').forEach(e=>e.classList.toggle('active',e.id==='page-'+id));$$('[data-page]').forEach(e=>e.classList.toggle('active',e.dataset.page===id));if(id==='controller'&&workspace){drawButtons();renderEditor()}if(id==='blocks'&&workspace)setTimeout(()=>Blockly.svgResize(workspace),80);window.scrollTo(0,0)}
 document.body.classList.add('blocks-page');
@@ -101,7 +101,7 @@ $('#saveDirection').onclick=()=>{if(!requireCar())return;let current=read('rover
 window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d');if(e.origin!==location.origin||!f||e.source!==f.contentWindow)return;if(e.data?.type==='rover-focus-details'&&window.matchMedia('(max-width:760px)').matches){const y=f.getBoundingClientRect().top+window.scrollY-62;window.scrollTo({top:Math.max(0,y),behavior:'smooth'});return}if(e.data?.type!=='rover-wiring-height')return;const h=Number(e.data.height);if(Number.isFinite(h))f.style.height=Math.max(350,Math.min(2400,h+4))+'px'});
 
 // Local connection: the car owns arbitration and stops on control timeout.
-let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false;
+let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false,shareSupported=false;
 const dialog=$('#connectDialog'), ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 let lastConnectionState='disconnected';
@@ -123,11 +123,13 @@ $('#connectSubmit').onclick=()=>{
  ws.onopen=()=>{if(epoch===connectionEpoch)ws.send('AUTH:'+code)};
  ws.onmessage=e=>{if(epoch!==connectionEpoch||typeof e.data!=='string')return;
   if(e.data==='AUTH:OK'){clearTimeout(timer);carConnected=true;paintConnection('free')}
+  else if(e.data==='CAPS:SHARE1'){shareSupported=true}
+  else if(e.data.startsWith('SHARE:')){handleShareMessage(e.data)}
   else if(e.data==='AUTH:FAIL'){clearTimeout(timer);paintConnection('error')}
   else if(e.data.startsWith('STATE:')){let v=e.data.slice(6);if(v!=='OWNER')lostControl();carOwner=v==='OWNER';paintConnection(v==='OWNER'?'owner':v==='BUSY'?'busy':'free')}
  };
  ws.onerror=()=>{if(epoch===connectionEpoch&&!carConnected)paintConnection('error')};
- ws.onclose=()=>{clearTimeout(timer);if(epoch!==connectionEpoch)return;let was=carConnected;lostControl();carConnected=false;carSocket=null;paintConnection(was?'disconnected':'error');if(was)notify('小車連線已中斷。')};
+ ws.onclose=()=>{clearTimeout(timer);if(epoch!==connectionEpoch)return;let was=carConnected;lostControl();carConnected=false;carSocket=null;shareSupported=false;shareDisconnected();paintConnection(was?'disconnected':'error');if(was)notify('小車連線已中斷。')};
 };
 $('#claimControl').onclick=()=>sendCar('CLAIM');
 $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={a:0,b:0};sendCar('RELEASE')};
@@ -185,7 +187,7 @@ const firmwareImages=[
  {name:'bootloader.bin',address:0x0,sha:'9b2fa5e4af7cf282b2db5ed726b26bcca0aec7946eb3fdacc14444195ba754b3'},
  {name:'partitions.bin',address:0x8000,sha:'148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1'},
  {name:'boot_app0.bin',address:0xe000,sha:'f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0'},
- {name:'firmware.bin',address:0x10000,sha:'e1a7a2ec2b6a443cd11625ad08c456d142e65f8d20a45dc419f31b3d2ca6fab4'}
+ {name:'firmware.bin',address:0x10000,sha:'de27205d3ad5b6f8b7d1d331c32a2d8c189bd30d70b202805f93973005c71ed6'}
 ];
 $('#flashFirmware').onclick=async()=>{
  const status=$('#flashStatus'),button=$('#flashFirmware'),progress=$('#flashProgress');
@@ -233,3 +235,45 @@ async function handleScannedCar(){
 window.addEventListener('hashchange',handleScannedCar);
 window.addEventListener('pageshow',handleScannedCar);
 handleScannedCar();
+
+// A share is a one-time snapshot relayed by the authenticated car; it is never executed on receipt.
+const SHARE_LIMIT=131072,shareDialog=$('#shareDialog'),receiveDialog=$('#receiveDialog');
+let incomingShare=null,pendingShare=null,shareAck=null,shareSending=false;
+function projectSnapshot(){return {version:1,blocks:Blockly.serialization.workspaces.save(workspace),buttons:buttons.filter(b=>b.id!==pendingNewButtonId).map(b=>({...b})),activeStart:read('rover_active_start',null)}}
+function shareRoots(){return workspace.getTopBlocks(true)}
+function shareRootName(b){if(b.type==='procedures_defnoreturn')return '自訂功能：'+b.getProcedureDef()[0];if(b.type==='start_car')return '當開始執行';return b.toString(55)||'積木'}
+function showShareChoices(){let list=$('#shareChoices');list.replaceChildren();for(const b of shareRoots()){let l=document.createElement('label'),c=document.createElement('input'),t=document.createElement('span');c.type='checkbox';c.value=b.id;t.textContent=shareRootName(b);l.append(c,t);list.append(l)}if(!list.children.length)list.textContent='目前沒有積木。'}
+function openShare(){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();if(dialog.open)dialog.close();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal()}
+$('#openShare').onclick=openShare;$('#shareClose').onclick=()=>shareDialog.close();
+$$('input[name="shareMode"]').forEach(r=>r.onchange=()=>{$('#shareChoices').hidden=$('input[name="shareMode"]:checked').value!=='selected'});
+function chosenProject(){let project=projectSnapshot();if($('input[name="shareMode"]:checked').value==='all')return project;
+ const ids=new Set($$('#shareChoices input:checked').map(x=>x.value));if(!ids.size)throw Error('請先勾選要分享的積木。');
+ // Include referenced definitions recursively, so their calls and controller buttons work.
+ let roots=shareRoots(), byName=new Map(customFunctions().map(b=>[b.getProcedureDef()[0],b])), todo=roots.filter(b=>ids.has(b.id));
+ for(let i=0;i<todo.length;i++)for(const b of todo[i].getDescendants(false)){if(b.type==='procedures_callnoreturn'){let def=byName.get(b.getProcedureCall());if(def&&!ids.has(def.id)){ids.add(def.id);todo.push(def)}}}
+ project.blocks.blocks.blocks=project.blocks.blocks.blocks.filter(b=>ids.has(b.id));
+ project.buttons=project.buttons.filter(b=>{let def=buttonFunction(b);return def&&ids.has(def.id)});
+ if(!ids.has(project.activeStart))project.activeStart=null;return project;
+}
+function validateProject(p){if(!p||p.version!==1||!p.blocks||!Array.isArray(p.buttons)||p.buttons.length>100)throw Error('作品格式不正確。');
+ const allowed=new Set(['start_car','both_motors','single_motor','wait_car','stop_car','repeat_car','procedures_defnoreturn','procedures_callnoreturn']);let count=0;
+ function checkBlock(b){if(!b||typeof b!=='object'||!allowed.has(b.type)||++count>1000)throw Error('作品包含不支援的積木。');if(b.next?.block)checkBlock(b.next.block);for(const v of Object.values(b.inputs||{})){if(v.block)checkBlock(v.block);if(v.shadow)checkBlock(v.shadow)}}
+ let roots=p.blocks.blocks?.blocks||[];if(!Array.isArray(roots)||roots.length>200)throw Error('作品格式不正確。');for(const b of roots)checkBlock(b);
+ for(const b of p.buttons){if(!b||!Number.isFinite(Number(b.x))||!Number.isFinite(Number(b.y))||Number(b.x)<0||Number(b.x)>100||Number(b.y)<0||Number(b.y)>100||!/^#[0-9a-f]{6}$/i.test(b.color||'')||typeof b.functionName!=='string'||b.functionName.length>100)throw Error('遙控器資料不正確。')}
+ let test=new Blockly.Workspace();try{Blockly.serialization.workspaces.load(p.blocks,test)}finally{test.dispose()}}
+function applyProject(p,keepBackup){validateProject(p);const previous=projectSnapshot();if(keepBackup&&!read('rover_share_backup',null))localStorage.setItem('rover_share_backup',JSON.stringify(previous));
+ stop();if(recording)finishRecording();if(pendingNewButtonId!==null)closeControllerPanel();
+ try{loadBlocks(p.blocks);buttons=p.buttons.map(b=>({...b}));pendingNewButtonId=null;selected=buttons[0]?.id;store('rover_blocks',Blockly.serialization.workspaces.save(workspace));saveButtons();store('rover_active_start',p.activeStart||null);drawButtons();renderEditor();resizeWorkspace()}
+ catch(e){loadBlocks(previous.blocks);buttons=previous.buttons;selected=buttons[0]?.id;store('rover_blocks',previous.blocks);saveButtons();store('rover_active_start',previous.activeStart);drawButtons();renderEditor();throw e}}
+$('#shareRestore').onclick=()=>{let p=read('rover_share_backup',null);if(!p)return;if(!confirm('復原原本的積木和遙控器？目前作品會被取代。'))return;try{applyProject(p,false);localStorage.removeItem('rover_share_backup');$('#shareRestore').hidden=true;shareDialog.close();notify('已復原原本的作品。')}catch(e){notify('無法復原作品，請確認瀏覽器儲存空間。','error')}};
+function waitShareAck(expected){return new Promise((resolve,reject)=>{let timer=setTimeout(()=>{shareAck=null;reject(Error('分享逾時，請確認組員仍在線上。'))},7000);shareAck={expected,resolve:()=>{clearTimeout(timer);shareAck=null;resolve()},reject:()=>{clearTimeout(timer);shareAck=null;reject(Error('分享中斷，請重試。'))}}})}
+async function sendShareFrame(msg,expected){let ack=waitShareAck(expected);if(!sendCar(msg)){shareAck.reject();}return ack}
+$('#shareSend').onclick=async()=>{if(shareSending)return;if(!carConnected){notify('請先連接小車，再分享給組員。');return}if(!shareSupported){notify('請先更新小車韌體，才能分享作品。');return}let id='';try{let project=chosenProject(),bytes=new TextEncoder().encode(JSON.stringify(project));if(bytes.length>SHARE_LIMIT)throw Error('作品太大，請減少積木後再分享。');let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));let data=btoa(binary),chunks=data.match(/.{1,800}/g)||[];id=Array.from(crypto.getRandomValues(new Uint8Array(6)),x=>x.toString(16).padStart(2,'0')).join('');shareSending=true;$('#shareSend').disabled=true;$('#shareStatus').textContent='正在分享…';runToken++;sim={left:0,right:0};carMotor={a:0,b:0};await sendShareFrame(`SHARE:BEGIN:${id}:${chunks.length}:${bytes.length}`,`${id}:BEGIN`);for(let i=0;i<chunks.length;i++)await sendShareFrame(`SHARE:CHUNK:${id}:${i}:${chunks[i]}`,`${id}:${i}`);await sendShareFrame(`SHARE:END:${id}`,`${id}:END`);$('#shareStatus').textContent='已送出，請組員確認接收。'}catch(e){if(id&&carConnected)sendCar('SHARE:CANCEL:'+id);$('#shareStatus').textContent=e.message||'分享失敗，請再試一次。'}finally{shareSending=false;$('#shareSend').disabled=false}};
+function shareDisconnected(){incomingShare=null;if(shareAck)shareAck.reject()}
+function handleShareMessage(msg){if(msg.startsWith('SHARE:ACK:')){if(shareAck&&msg.slice(10)===shareAck.expected)shareAck.resolve();return}if(msg==='SHARE:ERROR'){if(shareAck)shareAck.reject();return}
+ if(msg.startsWith('SHARE:ABORT:')){incomingShare=null;if(shareAck)shareAck.reject();return}
+ if(msg.startsWith('SHARE:BEGIN:')){let parts=msg.split(':'),id=parts[2],total=Number(parts[3]),size=Number(parts[4]);if(parts.length!==5||!/^\w{12}$/.test(id)||!Number.isInteger(total)||total<1||total>220||!Number.isInteger(size)||size<1||size>SHARE_LIMIT)return;incomingShare={id,total,size,parts:[]};return}
+ if(msg.startsWith('SHARE:CHUNK:')){let m=/^SHARE:CHUNK:([0-9a-f]{12}):(\d+):([A-Za-z0-9+/=]{1,800})$/.exec(msg);if(!m||!incomingShare||m[1]!==incomingShare.id||Number(m[2])!==incomingShare.parts.length){incomingShare=null;return}incomingShare.parts.push(m[3]);return}
+ if(msg.startsWith('SHARE:END:')){let cur=incomingShare;incomingShare=null;if(!cur||msg.slice(10)!==cur.id||cur.parts.length!==cur.total)return;try{let bin=atob(cur.parts.join(''));if(bin.length!==cur.size)throw Error();let data=Uint8Array.from(bin,c=>c.charCodeAt(0));let p=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));validateProject(p);if(pendingShare||receiveDialog.open){notify('已有待接收的作品，請先處理。');return}pendingShare=p;let count=p.blocks.blocks?.blocks?.length||0;$('#receiveSummary').textContent=`收到 ${count} 組積木、${p.buttons.length} 個遙控器按鈕。`;if(shareDialog.open)shareDialog.close();if(dialog.open)dialog.close();receiveDialog.showModal()}catch(e){notify('收到的作品不完整，請組員重新分享。','error')}}}
+$('#receiveCancel').onclick=()=>{pendingShare=null;receiveDialog.close()};$('#receiveAccept').onclick=()=>{if(!pendingShare)return;try{applyProject(pendingShare,true);pendingShare=null;receiveDialog.close();notify('已接收作品；可從「連線 → 分享作品」復原。')}catch(e){console.error(e);notify('無法接收作品，請確認瀏覽器儲存空間。','error')}};
+receiveDialog.addEventListener('cancel',()=>{pendingShare=null});
