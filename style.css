@@ -120,3 +120,5 @@
 .serial-log{margin:8px 0 12px;border:1px solid #d9e4f0;border-radius:9px;padding:8px 10px;font-size:14px}.serial-log summary{cursor:pointer;color:#345b88;font-weight:700}.serial-log ol{padding-left:22px;margin:8px 0 2px;color:#52617a}.serial-log li{margin:4px 0;overflow-wrap:anywhere}
 
 .mobile-nav #navConnect[data-connection="free"],.mobile-nav #navConnect[data-connection="busy"],.mobile-nav #navConnect[data-connection="owner"]{color:#2474c9}.mobile-nav #navConnect[data-connection="error"]{color:#c25353}.mobile-nav #navConnect span{white-space:nowrap}
+
+.car-qr{border:1px solid #d9e4f0;border-radius:12px;background:#fff;text-align:center;padding:12px;margin:10px 0}.car-qr[hidden]{display:none}.car-qr canvas{display:block;width:min(100%,240px);height:auto;margin:0 auto;image-rendering:pixelated}.car-qr p{font-size:14px;color:#52617a;margin:8px 0}.car-qr button{min-height:40px}

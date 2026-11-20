@@ -111,7 +111,7 @@ function paintConnection(state){
  $('#connectSubmit').disabled=state==='connecting'||carConnected;
 }
 function lostControl(){if(carOwner){runToken++;sim={left:0,right:0};carMotor={a:0,b:0};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
-$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();
+$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{$('#carQrPanel').hidden=true});
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){connectionStatus.textContent='請輸入區域網路 IP 與 6 位數配對碼。';return}
@@ -130,6 +130,12 @@ $('#connectSubmit').onclick=()=>{
 $('#claimControl').onclick=()=>sendCar('CLAIM');
 $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={a:0,b:0};sendCar('RELEASE')};
 $('#disconnectCar').onclick=()=>{if(carOwner)sendCar('RELEASE');carSocket?.close()};
+$('#showCarQr').onclick=async()=>{
+ const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請先填入小車 IP 和 6 位數配對碼。');return}
+ try{const qr=await import('./vendor/rover-qr.js');const url=new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($('#carQrCanvas'),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$('#carQrPanel').hidden=false;$('#carQrPanel').scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
+};
+$('#closeCarQr').onclick=()=>{$('#carQrPanel').hidden=true};
+for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{$('#carQrPanel').hidden=true});
 $('#shareCar').onclick=async()=>{let ip=ipInput.value.trim();if(!validLocalIP(ip)){notify('先輸入小車 IP。');return}let url=new URL(location.href);url.searchParams.set('car',ip);url.hash='';try{if(navigator.share)await navigator.share({title:'加入小車',url:url.href});else{await navigator.clipboard.writeText(url.href);notify('已複製連結；配對碼請另外告訴組員。')}}catch(e){if(e.name!=='AbortError')notify('無法分享連結，請將 IP 和配對碼告訴組員。')}};
 setInterval(()=>{if(!carConnected||!carOwner||document.hidden)return;if(!sendCar('PING'))return;if(carMotor.a||carMotor.b)sendCar(`M:${Math.round(carMotor.a)},${Math.round(carMotor.b)}`)},150);
 let wifiAttempt=null,wifiTimer=null,serialQueryBusy=false,lastSerialState='',serialHandshakeTimer=null,serialAcknowledged=false;
@@ -206,3 +212,16 @@ $('#flashFirmware').onclick=async()=>{
   button.disabled=false;$('#serialConnect').disabled=!!serialPort;
  }
 };
+
+// A scanned code carries the IP and pairing code in the URL fragment, not in the HTTP request.
+(async()=>{
+ const params=new URLSearchParams(location.hash.slice(1)),ip=params.get('join'),code=params.get('code');
+ if(!ip||!code)return;
+ history.replaceState(history.state,'',location.pathname+location.search);
+ if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('QR Code 的小車資訊無效。');return}
+ ipInput.value=ip;codeInput.value=code;if(!dialog.open)dialog.showModal();
+ let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
+ if(permission==='granted'){$('#connectSubmit').click()}
+ else if(permission==='denied')connectionStatus.textContent='請在瀏覽器網站設定允許區域網路，然後按「連線」。';
+ else connectionStatus.textContent='小車資訊已填好。請按「連線」，並允許存取區域網路。';
+})();
