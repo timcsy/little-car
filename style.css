@@ -118,3 +118,5 @@
 .flash-note{background:#fff4e9;border-radius:8px;padding:9px;font-size:14px}.serial-setup progress{width:100%;margin-top:8px;accent-color:#2878df}.serial-setup #flashStatus{font-size:14px;color:#52617a;overflow-wrap:anywhere}
 
 .serial-log{margin:8px 0 12px;border:1px solid #d9e4f0;border-radius:9px;padding:8px 10px;font-size:14px}.serial-log summary{cursor:pointer;color:#345b88;font-weight:700}.serial-log ol{padding-left:22px;margin:8px 0 2px;color:#52617a}.serial-log li{margin:4px 0;overflow-wrap:anywhere}
+
+.mobile-nav #navConnect[data-connection="free"],.mobile-nav #navConnect[data-connection="busy"],.mobile-nav #navConnect[data-connection="owner"]{color:#2474c9}.mobile-nav #navConnect[data-connection="error"]{color:#c25353}.mobile-nav #navConnect span{white-space:nowrap}
