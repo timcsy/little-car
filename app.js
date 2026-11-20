@@ -3,7 +3,8 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let workspace, sim={left:0,right:0}, runToken=0, timerStarted=0,timerElapsed=0,timerId=null;
 let carConnected=false, carOwner=false, carSocket=null, carMotor={a:0,b:0};function requireCar(){if(!carConnected){notify('小車未連線，請先連線。');return false}if(!carOwner){notify('請先取得控制權。');return false}return true}
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};const read=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
-function notify(text){const n=$('#notice');n.textContent=text;n.classList.add('show');clearTimeout(notify.id);notify.id=setTimeout(()=>n.classList.remove('show'),3500)}
+function notify(text,kind){const n=$('#notice'),dialog=document.querySelector('#connectDialog'),isError=kind==='error'||(!kind&&/(失敗|錯誤|無法|未連線|尚未連線|找不到|缺少|無效|請先|先輸入|中斷|不支援)/.test(text));const host=dialog?.open?dialog:document.body;if(n.parentNode!==host)host.appendChild(n);$('#noticeText').textContent=text;n.classList.toggle('error',isError);n.setAttribute('role',isError?'alert':'status');n.classList.add('show');clearTimeout(notify.id);if(!isError)notify.id=setTimeout(()=>n.classList.remove('show'),3500)}
+$('#noticeClose').onclick=()=>{clearTimeout(notify.id);$('#notice').classList.remove('show')};
 function showPage(id){document.body.classList.toggle('blocks-page',id==='blocks');document.body.classList.toggle('controller-page',id==='controller');document.body.classList.toggle('calibration-page',id==='calibration');document.body.classList.remove('controller-panel-open');$$('.page').forEach(e=>e.classList.toggle('active',e.id==='page-'+id));$$('[data-page]').forEach(e=>e.classList.toggle('active',e.dataset.page===id));if(id==='controller'&&workspace){drawButtons();renderEditor()}if(id==='blocks'&&workspace)setTimeout(()=>Blockly.svgResize(workspace),80);window.scrollTo(0,0)}
 document.body.classList.add('blocks-page');
 $$('[data-page]').forEach(e=>e.addEventListener('click',()=>showPage(e.dataset.page)));
@@ -103,18 +104,19 @@ window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d
 let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false;
 const dialog=$('#connectDialog'), ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
+let lastConnectionState='disconnected';
 function paintConnection(state){
  const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
- connectionStatus.textContent=messages[state]||state;
+ connectionStatus.textContent=state==='error'?'尚未連線':(messages[state]||state);if(state==='error'&&lastConnectionState!=='error')notify(messages.error,'error');lastConnectionState=state;
  const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';$('#desktopConnectStatus').textContent=navLabels[state]||'未連線';$('#carConnect').setAttribute('aria-label','連線：'+(messages[state]||'尚未連線'));nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
  $('#connectSubmit').disabled=state==='connecting'||carConnected;
 }
 function lostControl(){if(carOwner){runToken++;sim={left:0,right:0};carMotor={a:0,b:0};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
-$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{$('#carQrPanel').hidden=true});
+$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{$('#carQrPanel').hidden=true;if($('#notice').parentNode===dialog)$('#notice').classList.remove('show')});
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
 $('#connectSubmit').onclick=()=>{
- const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){connectionStatus.textContent='請輸入區域網路 IP 與 6 位數配對碼。';return}
+ const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請輸入區域網路 IP 與 6 位數配對碼。','error');return}
  let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){paintConnection('error');return}
  const epoch=++connectionEpoch;carSocket=ws;store('rover_car_ip',ip);paintConnection('connecting');
  const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){ws.close();paintConnection('error')}},8000);
@@ -139,10 +141,11 @@ for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{$('#c
 $('#shareCar').onclick=async()=>{let ip=ipInput.value.trim();if(!validLocalIP(ip)){notify('先輸入小車 IP。');return}let url=new URL(location.href);url.searchParams.set('car',ip);url.hash='';try{if(navigator.share)await navigator.share({title:'加入小車',url:url.href});else{await navigator.clipboard.writeText(url.href);notify('已複製連結；配對碼請另外告訴組員。')}}catch(e){if(e.name!=='AbortError')notify('無法分享連結，請將 IP 和配對碼告訴組員。')}};
 setInterval(()=>{if(!carConnected||!carOwner||document.hidden)return;if(!sendCar('PING'))return;if(carMotor.a||carMotor.b)sendCar(`M:${Math.round(carMotor.a)},${Math.round(carMotor.b)}`)},150);
 let wifiAttempt=null,wifiTimer=null,serialQueryBusy=false,lastSerialState='',serialHandshakeTimer=null,serialAcknowledged=false;
+function serialError(message,shortStatus='USB 或 Wi-Fi 尚未就緒'){const status=$('#serialStatus');status.textContent=shortStatus;notify(message,'error')}
 function serialLog(message){const list=$('#serialLog'),item=document.createElement('li'),time=new Date().toLocaleTimeString('zh-TW',{hour12:false});item.textContent=time+' '+message;list.append(item);while(list.children.length>16)list.firstElementChild.remove()}
 function endWifiAttempt(){clearInterval(wifiTimer);wifiTimer=null;wifiAttempt=null}
 function serialAcknowledgement(){serialAcknowledged=true;clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;$('#serialSave').disabled=false}
-function startSerialHandshake(){clearInterval(serialHandshakeTimer);serialAcknowledged=false;let started=Date.now();serialHandshakeTimer=setInterval(async()=>{if(!serialPort||serialAcknowledged){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;return}if(Date.now()-started>=12000){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;$('#serialStatus').textContent='USB 已開啟，但小車沒有回應。請按一下板上的 RESET，或確認已燒錄小車韌體。';serialLog('未收到小車回應，請按 RESET 或檢查韌體。');return}if(!serialQueryBusy){serialQueryBusy=true;try{await serialWrite('STATUS')}catch(e){}finally{serialQueryBusy=false}}},2000)}
+function startSerialHandshake(){clearInterval(serialHandshakeTimer);serialAcknowledged=false;let started=Date.now();serialHandshakeTimer=setInterval(async()=>{if(!serialPort||serialAcknowledged){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;return}if(Date.now()-started>=12000){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;serialError('USB 已開啟，但小車沒有回應。請按一下板上的 RESET，或確認已燒錄小車韌體。');serialLog('未收到小車回應，請按 RESET 或檢查韌體。');return}if(!serialQueryBusy){serialQueryBusy=true;try{await serialWrite('STATUS')}catch(e){}finally{serialQueryBusy=false}}},2000)}
 function serialStatusLine(line){
  const parts=line.split('\t');
  if(parts[0]==='PAIR'&&validLocalIP(parts[1])&&/^\d{6}$/.test(parts[2])){
@@ -154,7 +157,7 @@ function serialStatusLine(line){
   const labels={READY:'USB 已連接，可以設定 Wi-Fi。',CONNECTING:'小車正在連線 Wi-Fi。',DISCONNECTED:'小車尚未連上 Wi-Fi。'};
   if(labels[state]){$('#serialStatus').textContent=labels[state];if(lastSerialState!==state)serialLog(labels[state]);lastSerialState=state}return;
  }
- if(parts[0]==='ERROR'){endWifiAttempt();$('#serialStatus').textContent='小車回報 Wi-Fi 設定格式錯誤。';serialLog('小車回報設定格式錯誤。');lastSerialState='ERROR'}
+ if(parts[0]==='ERROR'){endWifiAttempt();serialError('小車回報 Wi-Fi 設定格式錯誤。','Wi-Fi 尚未連線');serialLog('小車回報設定格式錯誤。');lastSerialState='ERROR'}
 }
 async function serialWrite(line){if(!serialPort?.writable)throw Error('USB 尚未連接');let writer=serialPort.writable.getWriter();try{await writer.write(new TextEncoder().encode(line+'\n'))}finally{writer.releaseLock()}}
 function startWifiAttempt(){
@@ -162,19 +165,19 @@ function startWifiAttempt(){
  $('#serialStatus').textContent='已送出設定，正在等待小車連線…';
  wifiTimer=setInterval(async()=>{
   if(!wifiAttempt)return;let elapsed=Math.floor((Date.now()-wifiAttempt.started)/1000);
-  if(elapsed>=25){let responded=wifiAttempt.responses>0;endWifiAttempt();let msg=responded?'小車有回應，但 25 秒內尚未連上。請檢查 Wi-Fi 名稱、密碼與 2.4 GHz 設定。':'25 秒內沒有收到小車回應。請確認 USB 序列埠和小車韌體，再重新讀取。';$('#serialStatus').textContent=msg;serialLog(msg);return}
+  if(elapsed>=25){let responded=wifiAttempt.responses>0;endWifiAttempt();let msg=responded?'小車有回應，但 25 秒內尚未連上。請檢查 Wi-Fi 名稱、密碼與 2.4 GHz 設定。':'25 秒內沒有收到小車回應。請確認 USB 序列埠和小車韌體，再重新讀取。';serialError(msg,'Wi-Fi 尚未連線');serialLog(msg);return}
   $('#serialStatus').textContent=(wifiAttempt.ack?'小車正在連線 Wi-Fi':'等待小車回應')+'…（'+elapsed+' 秒）';
-  if(!serialQueryBusy){serialQueryBusy=true;try{await serialWrite('STATUS')}catch(e){endWifiAttempt();$('#serialStatus').textContent='USB 傳送失敗，請重新讀取小車。';serialLog('USB 傳送失敗。')}finally{serialQueryBusy=false}}
+  if(!serialQueryBusy){serialQueryBusy=true;try{await serialWrite('STATUS')}catch(e){endWifiAttempt();serialError('USB 傳送失敗，請重新讀取小車。');serialLog('USB 傳送失敗。')}finally{serialQueryBusy=false}}
  },2000)
 }
 $('#serialConnect').onclick=async()=>{
- if(!('serial' in navigator)){ $('#serialStatus').textContent='請使用電腦版 Chrome 或 Edge 的 HTTPS 網頁。';serialLog('此瀏覽器不支援 Web Serial。');return}
+ if(!('serial' in navigator)){ serialError('請使用電腦版 Chrome 或 Edge 的 HTTPS 網頁。');serialLog('此瀏覽器不支援 Web Serial。');return}
  try{serialPort=await navigator.serial.requestPort();await serialPort.open({baudRate:115200});serialReading=true;lastSerialState='';serialLog('USB 序列埠已開啟，正在查詢小車。');$('#serialStatus').textContent='USB 已開啟，正在查詢小車…';$('#serialSave').disabled=true;$('#serialDisconnect').disabled=false;$('#serialConnect').disabled=true;startSerialHandshake();
-  (async()=>{let buf='';try{while(serialPort?.readable&&serialReading){serialReader=serialPort.readable.getReader();try{while(serialReading){const {value,done}=await serialReader.read();if(done)break;buf+=new TextDecoder().decode(value);let idx;while((idx=buf.indexOf('\n'))>=0){serialStatusLine(buf.slice(0,idx).replace(/\r$/, ''));buf=buf.slice(idx+1)}if(buf.length>1000)buf=''}}finally{serialReader.releaseLock();serialReader=null}}}catch(e){if(serialReading){endWifiAttempt();$('#serialStatus').textContent='USB 連線已中斷，請結束 USB 後重新連接。';serialLog('USB 讀取中斷。')}}finally{serialReading=false}})();
+  (async()=>{let buf='';try{while(serialPort?.readable&&serialReading){serialReader=serialPort.readable.getReader();try{while(serialReading){const {value,done}=await serialReader.read();if(done)break;buf+=new TextDecoder().decode(value);let idx;while((idx=buf.indexOf('\n'))>=0){serialStatusLine(buf.slice(0,idx).replace(/\r$/, ''));buf=buf.slice(idx+1)}if(buf.length>1000)buf=''}}finally{serialReader.releaseLock();serialReader=null}}}catch(e){if(serialReading){endWifiAttempt();serialError('USB 連線已中斷，請結束 USB 後重新連接。');serialLog('USB 讀取中斷。')}}finally{serialReading=false}})();
   await serialWrite('STATUS');
- }catch(e){$('#serialStatus').textContent='無法開啟 USB，請確認韌體已燒錄並關閉其他序列埠程式。';serialLog('無法開啟 USB 序列埠。');serialPort=null}
+ }catch(e){serialError('無法開啟 USB，請確認韌體已燒錄並關閉其他序列埠程式。');serialLog('無法開啟 USB 序列埠。');serialPort=null}
 };
-$('#serialSave').onclick=async()=>{let name=$('#wifiName').value,pass=$('#wifiPassword').value;if(!name||/[\t\r\n]/.test(name+pass)||new TextEncoder().encode(name).length>32||new TextEncoder().encode(pass).length>63){$('#serialStatus').textContent='請檢查 Wi-Fi 名稱與密碼。';return}try{startWifiAttempt();await serialWrite(`WIFI\t${name}\t${pass}`);$('#wifiPassword').value=''}catch(e){endWifiAttempt();$('#serialStatus').textContent='USB 傳送失敗，請重新讀取小車。';serialLog('USB 傳送失敗。')}};
+$('#serialSave').onclick=async()=>{let name=$('#wifiName').value,pass=$('#wifiPassword').value;if(!name||/[\t\r\n]/.test(name+pass)||new TextEncoder().encode(name).length>32||new TextEncoder().encode(pass).length>63){serialError('請檢查 Wi-Fi 名稱與密碼。','Wi-Fi 尚未連線');return}try{startWifiAttempt();await serialWrite(`WIFI\t${name}\t${pass}`);$('#wifiPassword').value=''}catch(e){endWifiAttempt();serialError('USB 傳送失敗，請重新讀取小車。');serialLog('USB 傳送失敗。')}};
 $('#serialDisconnect').onclick=async()=>{endWifiAttempt();clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;serialAcknowledged=false;serialReading=false;try{await serialReader?.cancel();await serialPort?.close()}catch(e){}serialPort=null;$('#serialSave').disabled=true;$('#serialDisconnect').disabled=true;$('#serialConnect').disabled=false;$('#serialStatus').textContent='USB 已結束。';serialLog('USB 已結束。')};
 
 // Prebuilt ESP32-C3 images: only these four flash regions are written; NVS is not deliberately erased.
@@ -186,8 +189,8 @@ const firmwareImages=[
 ];
 $('#flashFirmware').onclick=async()=>{
  const status=$('#flashStatus'),button=$('#flashFirmware'),progress=$('#flashProgress');
- if(!('serial' in navigator)){status.textContent='請使用電腦版 Chrome 或 Edge 開啟 HTTPS 網頁。';return}
- if(serialPort){status.textContent='請先按「結束 USB」，再進行燒錄。';return}
+ if(!('serial' in navigator)){notify('請使用電腦版 Chrome 或 Edge 開啟 HTTPS 網頁。','error');return}
+ if(serialPort){notify('請先按「結束 USB」，再進行燒錄。','error');return}
  let transport=null,port=null,finished=false,resetOk=true;
  try{
   // Keep requestPort inside the user gesture, before network or dynamic imports.
@@ -206,7 +209,7 @@ $('#flashFirmware').onclick=async()=>{
   status.textContent=resetOk?'燒錄完成並驗證成功。接著按「讀取小車」設定 Wi-Fi。':'燒錄完成並驗證成功。請重新插拔 USB，再按「讀取小車」。';
  }catch(e){
   if(e?.name==='NotFoundError')status.textContent='已取消選擇序列埠。';
-  else {console.error('Flash failed',e);status.textContent='燒錄未完成：'+(e?.message||'請檢查 USB 連接')+'。可按住 BOOT、按一下 RESET 後重試。'}
+  else {console.error('Flash failed',e);status.textContent='燒錄未完成。';notify('燒錄未完成：'+(e?.message||'請檢查 USB 連接')+'。可按住 BOOT、按一下 RESET 後重試。','error')}
  }finally{
   if(transport){try{await transport.disconnect()}catch(e){if(finished)status.textContent='燒錄完成並驗證成功。請重新插拔 USB，再按「讀取小車」。'}}
   button.disabled=false;$('#serialConnect').disabled=!!serialPort;
@@ -224,7 +227,7 @@ async function handleScannedCar(){
  if(alreadyConnected){connectionStatus.textContent='已填入新的小車資訊；請先斷線，再按「連線」。';return}
  let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
  if(permission==='granted'){$('#connectSubmit').click()}
- else if(permission==='denied')connectionStatus.textContent='請在瀏覽器網站設定允許區域網路，然後按「連線」。';
+ else if(permission==='denied'){connectionStatus.textContent='尚未連線';notify('請在瀏覽器網站設定允許區域網路，然後按「連線」。','error');}
  else connectionStatus.textContent='小車資訊已填好。請按「連線」，並允許存取區域網路。';
 }
 window.addEventListener('hashchange',handleScannedCar);
