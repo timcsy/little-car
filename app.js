@@ -3,7 +3,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let workspace, sim={left:0,right:0}, runToken=0, timerStarted=0,timerElapsed=0,timerId=null;
 let carConnected=false, carOwner=false, carSocket=null, carMotor={a:0,b:0};function requireCar(){if(!carConnected){notify('小車未連線，請先連線。');return false}if(!carOwner){notify('請先取得控制權。');return false}return true}
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};const read=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
-function notify(text,kind){const n=$('#notice'),dialog=document.querySelector('#receiveDialog[open]')||document.querySelector('#shareDialog[open]')||document.querySelector('#connectDialog'),isError=kind==='error'||(!kind&&/(失敗|錯誤|無法|未連線|尚未連線|找不到|缺少|無效|請先|先輸入|中斷|不支援)/.test(text));const host=dialog?.open?dialog:document.body;if(n.parentNode!==host)host.appendChild(n);$('#noticeText').textContent=text;n.classList.toggle('error',isError);n.setAttribute('role',isError?'alert':'status');n.classList.add('show');clearTimeout(notify.id);notify.id=setTimeout(()=>n.classList.remove('show'),isError?7000:3500)}
+function notify(text,kind){const n=$('#notice'),dialog=document.querySelector('#receiveDialog[open]')||document.querySelector('#shareDialog[open]'),isError=kind==='error'||(!kind&&/(失敗|錯誤|無法|未連線|尚未連線|找不到|缺少|無效|請先|先輸入|中斷|不支援)/.test(text));const host=dialog?.open?dialog:document.body;if(n.parentNode!==host)host.appendChild(n);$('#noticeText').textContent=text;n.classList.toggle('error',isError);n.setAttribute('role',isError?'alert':'status');n.classList.add('show');clearTimeout(notify.id);notify.id=setTimeout(()=>n.classList.remove('show'),isError?7000:3500)}
 $('#noticeClose').onclick=()=>{clearTimeout(notify.id);$('#notice').classList.remove('show')};
 function showPage(id){document.body.classList.toggle('blocks-page',id==='blocks');document.body.classList.toggle('controller-page',id==='controller');document.body.classList.toggle('calibration-page',id==='calibration');document.body.classList.remove('controller-panel-open');$$('.page').forEach(e=>e.classList.toggle('active',e.id==='page-'+id));$$('[data-page]').forEach(e=>e.classList.toggle('active',e.dataset.page===id));if(id==='controller'&&workspace){drawButtons();renderEditor()}if(id==='blocks'&&workspace)setTimeout(()=>Blockly.svgResize(workspace),80);window.scrollTo(0,0)}
 document.body.classList.add('blocks-page');
@@ -102,7 +102,7 @@ window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d
 
 // Local connection: the car owns arbitration and stops on control timeout.
 let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false,shareSupported=false;
-const dialog=$('#connectDialog'), ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
+const ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 let lastConnectionState='disconnected';
 function paintConnection(state){
@@ -113,7 +113,7 @@ function paintConnection(state){
  $('#connectSubmit').disabled=state==='connecting'||carConnected;
 }
 function lostControl(){if(carOwner){runToken++;sim={left:0,right:0};carMotor={a:0,b:0};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
-$('#carConnect').onclick=()=>dialog.showModal();$('#navConnect').onclick=()=>dialog.showModal();$('#connectClose').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{$('#carQrPanel').hidden=true;if($('#notice').parentNode===dialog)$('#notice').classList.remove('show')});
+
 const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請輸入區域網路 IP 與 6 位數配對碼。','error');return}
@@ -225,7 +225,7 @@ async function handleScannedCar(){
  history.replaceState(history.state,'',location.pathname+location.search);
  if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('QR Code 的小車資訊無效。');return}
  const alreadyConnected=carConnected||carSocket?.readyState===WebSocket.CONNECTING;
- ipInput.value=ip;codeInput.value=code;$('#carQrPanel').hidden=true;if(!dialog.open)dialog.showModal();
+ ipInput.value=ip;codeInput.value=code;$('#carQrPanel').hidden=true;showPage('connection');
  if(alreadyConnected){connectionStatus.textContent='已填入新的小車資訊；請先斷線，再按「連線」。';return}
  let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
  if(permission==='granted'){$('#connectSubmit').click()}
@@ -242,11 +242,12 @@ let incomingShare=null,pendingShare=null,shareAck=null,shareSending=false;
 function projectSnapshot(){return {version:1,blocks:Blockly.serialization.workspaces.save(workspace),buttons:buttons.filter(b=>b.id!==pendingNewButtonId).map(b=>({...b})),activeStart:read('rover_active_start',null)}}
 function shareRoots(){return workspace.getTopBlocks(true)}
 function shareRootName(b){if(b.type==='procedures_defnoreturn')return '自訂功能：'+b.getProcedureDef()[0];if(b.type==='start_car')return '當開始執行';return b.toString(55)||'積木'}
-function showShareChoices(){let list=$('#shareChoices');list.replaceChildren();for(const b of shareRoots()){let l=document.createElement('label'),c=document.createElement('input'),t=document.createElement('span');c.type='checkbox';c.value=b.id;t.textContent=shareRootName(b);l.append(c,t);list.append(l)}if(!list.children.length)list.textContent='目前沒有積木。'}
-function openShare(){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();if(dialog.open)dialog.close();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal()}
+function showShareChoices(){let list=$('#shareChoices'),all=$('#shareSelectAll');list.replaceChildren();all.checked=true;all.indeterminate=false;for(const b of shareRoots()){let l=document.createElement('label'),c=document.createElement('input'),t=document.createElement('span');c.type='checkbox';c.value=b.id;c.checked=true;c.onchange=updateShareSelectAll;t.textContent=shareRootName(b);l.append(c,t);list.append(l)}if(!list.children.length)list.textContent='目前沒有積木。'}
+function updateShareSelectAll(){let items=$$('#shareChoices input'),count=items.filter(x=>x.checked).length;$('#shareSelectAll').checked=items.length>0&&count===items.length;$('#shareSelectAll').indeterminate=count>0&&count<items.length}
+$('#shareSelectAll').onchange=()=>{$$('#shareChoices input').forEach(x=>x.checked=$('#shareSelectAll').checked);$('#shareSelectAll').indeterminate=false};
+function openShare(){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal()}
 $('#openShare').onclick=openShare;$('#shareClose').onclick=()=>shareDialog.close();
-$$('input[name="shareMode"]').forEach(r=>r.onchange=()=>{$('#shareChoices').hidden=$('input[name="shareMode"]:checked').value!=='selected'});
-function chosenProject(){let project=projectSnapshot();if($('input[name="shareMode"]:checked').value==='all')return project;
+function chosenProject(){let project=projectSnapshot();if($('#shareSelectAll').checked)return project;
  const ids=new Set($$('#shareChoices input:checked').map(x=>x.value));if(!ids.size)throw Error('請先勾選要分享的積木。');
  // Include referenced definitions recursively, so their calls and controller buttons work.
  let roots=shareRoots(), byName=new Map(customFunctions().map(b=>[b.getProcedureDef()[0],b])), todo=roots.filter(b=>ids.has(b.id));
@@ -297,6 +298,6 @@ function handleShareMessage(msg){if(msg.startsWith('SHARE:ACK:')){if(shareAck&&m
  if(msg.startsWith('SHARE:ABORT:')){incomingShare=null;if(shareAck)shareAck.reject();return}
  if(msg.startsWith('SHARE:BEGIN:')){let parts=msg.split(':'),id=parts[2],total=Number(parts[3]),size=Number(parts[4]);if(parts.length!==5||!/^\w{12}$/.test(id)||!Number.isInteger(total)||total<1||total>220||!Number.isInteger(size)||size<1||size>SHARE_LIMIT)return;incomingShare={id,total,size,parts:[]};return}
  if(msg.startsWith('SHARE:CHUNK:')){let m=/^SHARE:CHUNK:([0-9a-f]{12}):(\d+):([A-Za-z0-9+/=]{1,800})$/.exec(msg);if(!m||!incomingShare||m[1]!==incomingShare.id||Number(m[2])!==incomingShare.parts.length){incomingShare=null;return}incomingShare.parts.push(m[3]);return}
- if(msg.startsWith('SHARE:END:')){let cur=incomingShare;incomingShare=null;if(!cur||msg.slice(10)!==cur.id||cur.parts.length!==cur.total)return;try{let bin=atob(cur.parts.join(''));if(bin.length!==cur.size)throw Error();let data=Uint8Array.from(bin,c=>c.charCodeAt(0));let p=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));validateProject(p);if(pendingShare||receiveDialog.open){notify('已有待接收的作品，請先處理。');return}pendingShare=p;$('input[name="receiveMode"][value="merge"]').checked=true;renderReceiveChoices();let count=p.blocks.blocks?.blocks?.length||0;$('#receiveSummary').textContent=`收到 ${count} 組積木、${p.buttons.length} 個遙控器按鈕。`;if(shareDialog.open)shareDialog.close();if(dialog.open)dialog.close();receiveDialog.showModal()}catch(e){notify('收到的作品不完整，請組員重新分享。','error')}}}
+ if(msg.startsWith('SHARE:END:')){let cur=incomingShare;incomingShare=null;if(!cur||msg.slice(10)!==cur.id||cur.parts.length!==cur.total)return;try{let bin=atob(cur.parts.join(''));if(bin.length!==cur.size)throw Error();let data=Uint8Array.from(bin,c=>c.charCodeAt(0));let p=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));validateProject(p);if(pendingShare||receiveDialog.open){notify('已有待接收的作品，請先處理。');return}pendingShare=p;$('input[name="receiveMode"][value="merge"]').checked=true;renderReceiveChoices();let count=p.blocks.blocks?.blocks?.length||0;$('#receiveSummary').textContent=`收到 ${count} 組積木、${p.buttons.length} 個遙控器按鈕。`;if(shareDialog.open)shareDialog.close();receiveDialog.showModal()}catch(e){notify('收到的作品不完整，請組員重新分享。','error')}}}
 $('#receiveCancel').onclick=()=>{pendingShare=null;receiveDialog.close()};$('#receiveAccept').onclick=()=>{if(!pendingShare)return;try{let p=$('input[name="receiveMode"]:checked').value==='merge'?mergeProject(projectSnapshot(),pendingShare):pendingShare;applyProject(p,true);pendingShare=null;receiveDialog.close();notify('已接收作品；可從「連線 → 分享作品」復原。')}catch(e){console.error(e);notify(e.message?.startsWith('請')||e.message?.startsWith('新名稱')?e.message:'無法接收作品，請確認作品和瀏覽器儲存空間。','error')}};
 receiveDialog.addEventListener('cancel',()=>{pendingShare=null});
