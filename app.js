@@ -214,14 +214,19 @@ $('#flashFirmware').onclick=async()=>{
 };
 
 // A scanned code carries the IP and pairing code in the URL fragment, not in the HTTP request.
-(async()=>{
+async function handleScannedCar(){
  const params=new URLSearchParams(location.hash.slice(1)),ip=params.get('join'),code=params.get('code');
  if(!ip||!code)return;
  history.replaceState(history.state,'',location.pathname+location.search);
  if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('QR Code 的小車資訊無效。');return}
- ipInput.value=ip;codeInput.value=code;if(!dialog.open)dialog.showModal();
+ const alreadyConnected=carConnected||carSocket?.readyState===WebSocket.CONNECTING;
+ ipInput.value=ip;codeInput.value=code;$('#carQrPanel').hidden=true;if(!dialog.open)dialog.showModal();
+ if(alreadyConnected){connectionStatus.textContent='已填入新的小車資訊；請先斷線，再按「連線」。';return}
  let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
  if(permission==='granted'){$('#connectSubmit').click()}
  else if(permission==='denied')connectionStatus.textContent='請在瀏覽器網站設定允許區域網路，然後按「連線」。';
  else connectionStatus.textContent='小車資訊已填好。請按「連線」，並允許存取區域網路。';
-})();
+}
+window.addEventListener('hashchange',handleScannedCar);
+window.addEventListener('pageshow',handleScannedCar);
+handleScannedCar();
