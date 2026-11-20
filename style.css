@@ -175,3 +175,9 @@
 #page-connection #peerCandidates .peer-candidate{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:11px 14px;border:2px solid #4c97ff;border-radius:10px;background:#edf5ff;color:#195fbf;font-size:16px;font-weight:700;text-align:left}
 #page-connection #peerCandidates .peer-candidate-action{flex:none;padding:5px 12px;border-radius:7px;background:#4c97ff;color:#fff;font-size:14px}
 #page-connection #peerCandidates .peer-candidate:focus-visible{outline:3px solid #173f80;outline-offset:2px}
+#page-controller #controllerGrid{font-size:12px;white-space:nowrap;min-height:30px;padding:4px 8px;margin-left:auto}
+#page-controller #controllerGrid[hidden]{display:none}
+#page-controller .show-controller-grid{background-image:linear-gradient(to right,#a5c5ee 1px,transparent 1px),linear-gradient(to bottom,#a5c5ee 1px,transparent 1px);background-size:5% 5%}
+@media(max-width:760px){#page-controller #controllerGrid{font-size:11px;padding:3px 5px;min-height:28px}#page-controller .card-head{gap:5px}}
+#page-controller .show-controller-grid{background-image:linear-gradient(to right,#d9e5f5 1px,transparent 1px),linear-gradient(to bottom,#d9e5f5 1px,transparent 1px)}
+@media(max-width:760px){#page-controller .card-head:has(#controllerGrid:not([hidden])) #modePill{display:none}}
