@@ -83,6 +83,8 @@ bool saveCalibration(const Calibration &c) {
 }
 
 void reportSerial() {
+  String savedSsid=prefs.getString("ssid", "");
+  if (savedSsid.length()) { Serial.print("WIFIINFO\t"); Serial.print(savedSsid); Serial.print('\t'); Serial.println(prefs.getString("password", "").length() ? "1" : "0"); }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("PAIR\t"); Serial.print(WiFi.localIP()); Serial.print('\t'); Serial.println(pairCode);
   } else Serial.println("STATUS\tDISCONNECTED");
@@ -151,6 +153,12 @@ void event(uint8_t n, WStype_t type, uint8_t *payload, size_t length) {
 }
 void handleSerial(String line) {
   if (line == "STATUS") { reportSerial(); return; }
+  if (line == "WIFIREUSE") {
+    String ssid=prefs.getString("ssid", ""), password=prefs.getString("password", "");
+    if (!ssid.length()) { Serial.println("ERROR\tWIFI"); return; }
+    shareAbort(); releaseOwner(); ws.disconnect(); for(bool &a:authorized)a=false;
+    Serial.println("STATUS\tCONNECTING"); WiFi.disconnect(); WiFi.begin(ssid.c_str(),password.c_str()); return;
+  }
   if (line.startsWith("WIFI\t")) {
     int split=line.indexOf('\t',5); if (split<0) { Serial.println("ERROR\tFORMAT"); return; }
     String ssid=line.substring(5,split), password=line.substring(split+1);
