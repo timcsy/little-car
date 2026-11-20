@@ -135,3 +135,7 @@
 .connect-page-panel{width:min(100%,560px);max-height:none;overflow:visible;box-shadow:none;background:white;border:1px solid #e4eaf2;margin:0 auto}.connect-top h1{margin:0;font-size:24px}.share-select-all{margin:14px 0 8px}.share-select-all label{display:flex;align-items:center;gap:10px;font-weight:700;padding:10px;border:1px solid #cbd8ea;border-radius:10px}.share-select-all input{width:18px;height:18px;accent-color:#4c97ff}.connect-page-panel .connect-fields button,.connect-page-panel .connect-actions button{min-height:44px}@media(max-width:760px){.connect-page-panel{width:100%;padding:16px}.connect-top h1{font-size:21px}}
 
 
+
+.share-group-title{font-size:14px;color:#64748b;margin:8px 2px 0}.share-empty{font-size:14px;color:#8794a8;margin:2px 4px}.share-button-color{width:15px;height:15px;flex:none;border-radius:50%;border:1px solid #0002}.share-choices input{flex:none}
+
+.share-shortcuts{display:flex;gap:6px;margin:0 0 8px}.share-dialog .share-shortcuts button{flex:1;padding:7px 6px;font-size:13px;min-width:0}

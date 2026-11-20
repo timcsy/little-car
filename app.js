@@ -242,18 +242,29 @@ let incomingShare=null,pendingShare=null,shareAck=null,shareSending=false;
 function projectSnapshot(){return {version:1,blocks:Blockly.serialization.workspaces.save(workspace),buttons:buttons.filter(b=>b.id!==pendingNewButtonId).map(b=>({...b})),activeStart:read('rover_active_start',null)}}
 function shareRoots(){return workspace.getTopBlocks(true)}
 function shareRootName(b){if(b.type==='procedures_defnoreturn')return '自訂功能：'+b.getProcedureDef()[0];if(b.type==='start_car')return '當開始執行';return b.toString(55)||'積木'}
-function showShareChoices(){let list=$('#shareChoices'),all=$('#shareSelectAll');list.replaceChildren();all.checked=true;all.indeterminate=false;for(const b of shareRoots()){let l=document.createElement('label'),c=document.createElement('input'),t=document.createElement('span');c.type='checkbox';c.value=b.id;c.checked=true;c.onchange=updateShareSelectAll;t.textContent=shareRootName(b);l.append(c,t);list.append(l)}if(!list.children.length)list.textContent='目前沒有積木。'}
-function updateShareSelectAll(){let items=$$('#shareChoices input'),count=items.filter(x=>x.checked).length;$('#shareSelectAll').checked=items.length>0&&count===items.length;$('#shareSelectAll').indeterminate=count>0&&count<items.length}
-$('#shareSelectAll').onchange=()=>{$$('#shareChoices input').forEach(x=>x.checked=$('#shareSelectAll').checked);$('#shareSelectAll').indeterminate=false};
-function openShare(){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal()}
+function showShareChoices(){
+ let list=$('#shareChoices'),all=$('#shareSelectAll');list.replaceChildren();all.checked=true;all.indeterminate=false;
+ function heading(text,kind){let h=document.createElement('h3');h.className='share-group-title';h.dataset.shareSection=kind;h.textContent=text;list.append(h)}
+ function addChoice(text,value,kind,color){let l=document.createElement('label'),c=document.createElement('input'),t=document.createElement('span');c.type='checkbox';c.value=value;c.checked=true;c.dataset.shareKind=kind;c.onchange=updateShareSelectAll;if(color){let dot=document.createElement('span');dot.className='share-button-color';dot.style.backgroundColor=color;l.append(c,dot,t)}else l.append(c,t);t.textContent=text;list.append(l)}
+ heading('積木','block');let roots=shareRoots();for(const b of roots)addChoice(shareRootName(b),b.id,'block');if(!roots.length){let empty=document.createElement('span');empty.className='share-empty';empty.textContent='沒有積木';list.append(empty)}
+ heading('遙控器按鈕','button');let saved=buttons.filter(b=>b.id!==pendingNewButtonId);for(const [index,b] of saved.entries()){let def=buttonFunction(b);addChoice(def?def.getProcedureDef()[0]:'未設定功能',String(index),'button',b.color)}if(!saved.length){let empty=document.createElement('span');empty.className='share-empty';empty.textContent='沒有按鈕';list.append(empty)}updateShareCounts();
+}
+function updateShareCounts(){for(const [kind,id,label] of [['block','shareBlocksShortcut','積木'],['button','shareButtonsShortcut','遙控器按鈕']]){let items=$$(`#shareChoices input[data-share-kind="${kind}"]`);$('#'+id).textContent=`${label} ${items.filter(x=>x.checked).length}/${items.length}`}}
+function updateShareSelectAll(){let items=$$('#shareChoices input'),count=items.filter(x=>x.checked).length;$('#shareSelectAll').checked=items.length>0&&count===items.length;$('#shareSelectAll').indeterminate=count>0&&count<items.length;updateShareCounts()}
+function scrollShareSection(kind){let list=$('#shareChoices'),heading=list.querySelector(`[data-share-section="${kind}"]`);if(heading)list.scrollTo({top:list.scrollTop+heading.getBoundingClientRect().top-list.getBoundingClientRect().top,behavior:'smooth'})}
+$('#shareBlocksShortcut').onclick=()=>scrollShareSection('block');$('#shareButtonsShortcut').onclick=()=>scrollShareSection('button');
+$('#shareSelectAll').onchange=()=>{$$('#shareChoices input').forEach(x=>x.checked=$('#shareSelectAll').checked);$('#shareSelectAll').indeterminate=false;updateShareCounts()};
+function openShare(event){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal();if(event?.currentTarget?.id==='controllerShare')requestAnimationFrame(()=>scrollShareSection('button'))}
 $('#openShare').onclick=openShare;$$('[data-open-share]').forEach(button=>button.addEventListener('click',openShare));$('#shareClose').onclick=()=>shareDialog.close();
 function chosenProject(){let project=projectSnapshot();if($('#shareSelectAll').checked)return project;
- const ids=new Set($$('#shareChoices input:checked').map(x=>x.value));if(!ids.size)throw Error('請先勾選要分享的積木。');
- // Include referenced definitions recursively, so their calls and controller buttons work.
- let roots=shareRoots(), byName=new Map(customFunctions().map(b=>[b.getProcedureDef()[0],b])), todo=roots.filter(b=>ids.has(b.id));
+ const ids=new Set($$('#shareChoices input[data-share-kind="block"]:checked').map(x=>x.value));
+ const buttonIndexes=new Set($$('#shareChoices input[data-share-kind="button"]:checked').map(x=>Number(x.value)));
+ if(!ids.size&&!buttonIndexes.size)throw Error('請先勾選要分享的積木或按鈕。');
+ // Button functions and all functions called by selected stacks are required dependencies.
+ let roots=shareRoots(),byName=new Map(customFunctions().map(b=>[b.getProcedureDef()[0],b])),todo=roots.filter(b=>ids.has(b.id));
+ project.buttons=project.buttons.filter((b,index)=>{if(!buttonIndexes.has(index))return false;let def=buttonFunction(b);if(def&&!ids.has(def.id)){ids.add(def.id);todo.push(def)}return true});
  for(let i=0;i<todo.length;i++)for(const b of todo[i].getDescendants(false)){if(b.type==='procedures_callnoreturn'){let def=byName.get(b.getProcedureCall());if(def&&!ids.has(def.id)){ids.add(def.id);todo.push(def)}}}
- project.blocks.blocks.blocks=project.blocks.blocks.blocks.filter(b=>ids.has(b.id));
- project.buttons=project.buttons.filter(b=>{let def=buttonFunction(b);return def&&ids.has(def.id)});
+ if(project.blocks.blocks)project.blocks.blocks.blocks=project.blocks.blocks.blocks.filter(b=>ids.has(b.id));
  if(!ids.has(project.activeStart))project.activeStart=null;return project;
 }
 function validateProject(p){if(!p||p.version!==1||!p.blocks||!Array.isArray(p.buttons)||p.buttons.length>100)throw Error('作品格式不正確。');
