@@ -63,6 +63,11 @@ function arrangeBlocks2D(){
   item.block.moveBy(best.x-item.x,best.y-item.y);placed.push({x:best.x,y:best.y,w:item.w,h:item.h,original:item});
  }}finally{workspace.setResizesEnabled(true);if(!previousGroup)Blockly.Events.setGroup(false)}Blockly.svgResize(workspace)
 }
+function updateBlockHistoryButtons(){if(!workspace)return;for(const id of ['undoBlocks','mobileUndo'])$('#'+id).disabled=!workspace.undoStack_.length;for(const id of ['redoBlocks','mobileRedo'])$('#'+id).disabled=!workspace.redoStack_.length}
+function applyBlockHistory(redo){if(!workspace)return;workspace.undo(redo);setTimeout(updateBlockHistoryButtons,0)}
+for(const id of ['undoBlocks','mobileUndo'])$('#'+id).onclick=()=>applyBlockHistory(false);
+for(const id of ['redoBlocks','mobileRedo'])$('#'+id).onclick=()=>applyBlockHistory(true);
+if(workspace){workspace.addChangeListener(()=>setTimeout(updateBlockHistoryButtons,0));setTimeout(()=>{workspace.clearUndo();updateBlockHistoryButtons()},0)}
 $('#mobileRun').onclick=()=>$('#run').click();$('#mobileStop').onclick=emergencyStop;$('#mobileExample').onclick=()=>$('#example').click();$('#mobileClear').onclick=()=>$('#clearBlocks').click();$('#mobileArrange').onclick=()=>$('#arrangeBlocks').click();$('#arrangeBlocks').onclick=()=>{if(workspace)arrangeBlocks2D()};
 // Recover if the browser loses the mouse-up event during a Blockly drag.
 document.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&e.buttons===0&&workspace?.isDragging())workspace.cancelCurrentGesture()});

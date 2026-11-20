@@ -166,3 +166,5 @@
 #page-connection #keepWifiPasswordLabel{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}
 #page-connection #keepWifiPasswordLabel[hidden]{display:none}
 #page-connection #keepWifiPassword{width:18px;min-height:18px;height:18px;margin:0;flex:none}
+@media(max-width:760px){.blocks-page .mobile-block-toolbar .history-button{font-size:19px;line-height:1;padding:5px 6px;min-width:30px}.blocks-page .mobile-block-toolbar .btn:disabled{opacity:.42}}
+@media(max-width:380px){.blocks-page .mobile-block-toolbar{gap:2px}.blocks-page .mobile-block-toolbar .btn{padding-left:4px;padding-right:4px}.blocks-page .mobile-block-toolbar .history-button{min-width:28px;padding-left:4px;padding-right:4px}}
