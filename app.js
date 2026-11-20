@@ -106,7 +106,7 @@ function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=
 function paintConnection(state){
  const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
  connectionStatus.textContent=messages[state]||state;
- $('#carConnect').textContent=state==='owner'?'控制中':carConnected?'已連線':'連接小車';const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
+ const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';$('#desktopConnectStatus').textContent=navLabels[state]||'未連線';$('#carConnect').setAttribute('aria-label','連線：'+(messages[state]||'尚未連線'));nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
  $('#connectSubmit').disabled=state==='connecting'||carConnected;
 }
