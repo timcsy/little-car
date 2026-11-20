@@ -162,3 +162,4 @@
 #page-connection .connection-purpose{font-size:14px;color:#64748b;line-height:1.45;margin:0 0 10px}
 #page-connection .usb-disconnect-hint{font-size:13px;color:#718199;margin:2px 0 0}
 @media(max-width:380px){#page-connection .connection-tabs button{font-size:12px;gap:2px}}
+#page-connection .connection-tabs button{flex-direction:column;gap:0;line-height:1.2;white-space:nowrap}
