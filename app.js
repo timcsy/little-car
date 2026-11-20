@@ -124,8 +124,8 @@ function paintConnection(state){
  connectionStatus.textContent=calUpgradeRequired&&carConnected?'請更新小車韌體後再控制。':state==='error'?'尚未連線':(messages[state]||state);if(state==='error'&&lastConnectionState!=='error')notify(messages.error,'error');lastConnectionState=state;
  const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';$('#connectionCarTabStatus').textContent=navLabels[state]||'未連線';$('#desktopConnectStatus').textContent=navLabels[state]||'未連線';$('#carConnect').setAttribute('aria-label','連線：'+(messages[state]||'尚未連線'));nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#claimControl').disabled=!carCalSupported||!carCalibration;$$('.cal-offline').forEach(el=>el.hidden=!!(carConnected&&carCalSupported&&carCalibration));$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
- if(wifiPairReady&&carConnected)$('#serialStatus').textContent='此裝置已連線。QR Code 在「區域網路」分頁。';else if(wifiPairReady&&state==='connecting')$('#serialStatus').textContent='正在連接小車…';else if(wifiPairReady&&state==='error')$('#serialStatus').textContent='無法連接小車，請確認電腦與小車在同一個 Wi-Fi，並允許區域網路權限。';else if(wifiPairReady&&state==='disconnected')$('#serialStatus').textContent='小車已斷線；確認網路後，可到「區域網路」分頁重新連線。';
- $('#connectSubmit').disabled=state==='connecting'||carConnected;$('#connectAfterWifi').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim());
+ if(wifiPairReady&&carConnected)$('#serialStatus').textContent='此裝置已連線，可顯示 QR Code 讓組員掃描。';else if(wifiPairReady&&state==='connecting')$('#serialStatus').textContent='正在連接小車…';else if(wifiPairReady&&state==='error')$('#serialStatus').textContent='無法連接小車，請確認電腦與小車在同一個 Wi-Fi，並允許區域網路權限。';else if(wifiPairReady&&state==='disconnected')$('#serialStatus').textContent='小車已斷線；確認網路後，可到「區域網路」分頁重新連線。';
+ $('#connectSubmit').disabled=state==='connecting'||carConnected;$('#connectAfterWifi').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim());$('#showUsbCarQr').disabled=$('#connectAfterWifi').disabled;
 }
 function lostControl(){if(carOwner){rejectCalibration('控制權已交出，校正未完成。');runToken++;sim={left:0,right:0};carMotor={frame:null};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
 
@@ -155,12 +155,15 @@ $('#connectSubmit').onclick=()=>{
 $('#claimControl').onclick=()=>sendCar('CLAIM');
 $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={frame:null};sendCar('RELEASE')};
 $('#disconnectCar').onclick=()=>{if(carOwner)sendCar('RELEASE');carSocket?.close()};
-$('#showCarQr').onclick=async()=>{
+async function showCarQr(panel,canvas){
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請先填入小車 IP 和 6 位數配對碼。');return}
- try{const qr=await import('./vendor/rover-qr.js');const url=new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($('#carQrCanvas'),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$('#carQrPanel').hidden=false;$('#carQrPanel').scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
-};
+ try{const qr=await import('./vendor/rover-qr.js');const url=new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($(canvas),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$(panel).hidden=false;$(panel).scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
+}
+$('#showCarQr').onclick=()=>showCarQr('#carQrPanel','#carQrCanvas');
+$('#showUsbCarQr').onclick=()=>showCarQr('#usbCarQrPanel','#usbCarQrCanvas');
 $('#closeCarQr').onclick=()=>{$('#carQrPanel').hidden=true};
-for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{$('#carQrPanel').hidden=true});
+$('#closeUsbCarQr').onclick=()=>{$('#usbCarQrPanel').hidden=true};
+for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{$('#carQrPanel').hidden=true;$('#usbCarQrPanel').hidden=true;$('#showUsbCarQr').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim())});
 $('#shareCar').onclick=async()=>{let ip=ipInput.value.trim();if(!validLocalIP(ip)){notify('先輸入小車 IP。');return}let url=new URL(location.href);url.searchParams.set('car',ip);url.hash='';try{if(navigator.share)await navigator.share({title:'加入小車',url:url.href});else{await navigator.clipboard.writeText(url.href);notify('已複製連結；配對碼請另外告訴組員。')}}catch(e){if(e.name!=='AbortError')notify('無法分享連結，請將 IP 和配對碼告訴組員。')}};
 setInterval(()=>{if(!carConnected||!carOwner||document.hidden)return;if(!sendCar('PING'))return;if(carMotor.frame)sendCar(carMotor.frame)},150);
 let wifiAttempt=null,wifiTimer=null,serialQueryBusy=false,lastSerialState='',serialHandshakeTimer=null,serialAcknowledged=false;
@@ -173,7 +176,7 @@ function startSerialHandshake(){clearInterval(serialHandshakeTimer);serialAcknow
 function serialStatusLine(line){
  const parts=line.split('\t');
  if(parts[0]==='PAIR'&&validLocalIP(parts[1])&&/^\d{6}$/.test(parts[2])){
-  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=false;ipInput.value=parts[1];applyCarPairCode(parts[2]);store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的小組屬於另一台小車；如需切換，請先離開小組。');$('#serialStatus').textContent='已讀取小車資訊。要控制小車，請前往「區域網路」分頁。';
+  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=false;$('#showUsbCarQr').disabled=false;$('#usbCarQrPanel').hidden=true;$('#carQrPanel').hidden=true;ipInput.value=parts[1];applyCarPairCode(parts[2]);store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的小組屬於另一台小車；如需切換，請先離開小組。');$('#serialStatus').textContent='已讀取小車資訊。要控制小車，請前往「區域網路」分頁。';
   if(lastSerialState!=='PAIR'||wasAttempt)serialLog('小車已連上 Wi-Fi；IP：'+parts[1]+'，配對碼已填入。');lastSerialState='PAIR';return;
  }
  if(parts[0]==='STATUS'){
@@ -185,7 +188,7 @@ function serialStatusLine(line){
 }
 async function serialWrite(line){if(!serialPort?.writable)throw Error('USB 尚未連接');let writer=serialPort.writable.getWriter();try{await writer.write(new TextEncoder().encode(line+'\n'))}finally{writer.releaseLock()}}
 function startWifiAttempt(){
- endWifiAttempt();$('#serialSave').disabled=true;$('#connectAfterWifi').disabled=true;wifiPairReady=false;lastSerialState='';wifiAttempt={started:Date.now(),responses:0,ack:false};serialLog('已傳送 Wi-Fi 設定，等待小車回應。');
+ endWifiAttempt();$('#serialSave').disabled=true;$('#connectAfterWifi').disabled=true;$('#showUsbCarQr').disabled=true;$('#usbCarQrPanel').hidden=true;wifiPairReady=false;lastSerialState='';wifiAttempt={started:Date.now(),responses:0,ack:false};serialLog('已傳送 Wi-Fi 設定，等待小車回應。');
  $('#serialStatus').textContent='已送出設定，正在等待小車連線…';
  wifiTimer=setInterval(async()=>{
   if(!wifiAttempt)return;let elapsed=Math.floor((Date.now()-wifiAttempt.started)/1000);
