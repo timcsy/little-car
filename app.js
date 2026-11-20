@@ -246,7 +246,7 @@ function showShareChoices(){let list=$('#shareChoices'),all=$('#shareSelectAll')
 function updateShareSelectAll(){let items=$$('#shareChoices input'),count=items.filter(x=>x.checked).length;$('#shareSelectAll').checked=items.length>0&&count===items.length;$('#shareSelectAll').indeterminate=count>0&&count<items.length}
 $('#shareSelectAll').onchange=()=>{$$('#shareChoices input').forEach(x=>x.checked=$('#shareSelectAll').checked);$('#shareSelectAll').indeterminate=false};
 function openShare(){if(!workspace)return;if(pendingNewButtonId!==null)closeControllerPanel();showShareChoices();$('#shareStatus').textContent='';$('#shareRestore').hidden=!read('rover_share_backup',null);shareDialog.showModal()}
-$('#openShare').onclick=openShare;$('#shareClose').onclick=()=>shareDialog.close();
+$('#openShare').onclick=openShare;$$('[data-open-share]').forEach(button=>button.addEventListener('click',openShare));$('#shareClose').onclick=()=>shareDialog.close();
 function chosenProject(){let project=projectSnapshot();if($('#shareSelectAll').checked)return project;
  const ids=new Set($$('#shareChoices input:checked').map(x=>x.value));if(!ids.size)throw Error('請先勾選要分享的積木。');
  // Include referenced definitions recursively, so their calls and controller buttons work.
