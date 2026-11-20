@@ -183,3 +183,6 @@
 #controlCanvas .controller-guide[hidden]{display:none}
 #controlCanvas .controller-guide-x{top:0;bottom:0;width:1px;transform:translateX(-50%)}
 #controlCanvas .controller-guide-y{left:0;right:0;height:1px;transform:translateY(-50%)}
+#controlCanvas .controller-guide::after{content:attr(data-label);position:absolute;white-space:nowrap;padding:2px 5px;border-radius:4px;background:#b33888;color:white;font-size:11px;line-height:1.3;font-weight:700}
+#controlCanvas .controller-guide-x::after{top:5px;left:4px}
+#controlCanvas .controller-guide-y::after{left:5px;top:4px}
