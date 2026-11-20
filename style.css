@@ -172,3 +172,6 @@
 #page-controller .controller-history[hidden]{display:none}
 #page-controller .controller-history:disabled{opacity:.42}
 @media(max-width:380px){.controller-page #page-controller .top-actions{gap:2px}.controller-page #page-controller .top-actions .btn{padding-left:4px;padding-right:4px}.controller-page #page-controller .controller-history{min-width:28px;padding:5px 3px}}
+#page-connection #peerCandidates .peer-candidate{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:11px 14px;border:2px solid #4c97ff;border-radius:10px;background:#edf5ff;color:#195fbf;font-size:16px;font-weight:700;text-align:left}
+#page-connection #peerCandidates .peer-candidate-action{flex:none;padding:5px 12px;border-radius:7px;background:#4c97ff;color:#fff;font-size:14px}
+#page-connection #peerCandidates .peer-candidate:focus-visible{outline:3px solid #173f80;outline-offset:2px}
