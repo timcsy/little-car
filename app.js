@@ -162,13 +162,15 @@ $('#saveDirection').onclick=async()=>{if(!requireCar())return;let next={...carCa
 window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d');if(e.origin!==location.origin||!f||e.source!==f.contentWindow)return;if(e.data?.type==='rover-focus-details'&&window.matchMedia('(max-width:760px)').matches){const y=f.getBoundingClientRect().top+window.scrollY-62;window.scrollTo({top:Math.max(0,y),behavior:'smooth'});return}if(e.data?.type!=='rover-wiring-height')return;const h=Number(e.data.height);if(Number.isFinite(h))f.style.height=Math.max(350,Math.min(2400,h+4))+'px'});
 
 // Local connection: the car owns arbitration and stops on control timeout.
-let connectedCarAddress=null;
+let connectedCarAddress=null,lastAttemptViaRelay=false,lastAttemptAuthFailed=false;
 let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false,shareSupported=false,wifiPairReady=false,peerHostCarCode='';
 const ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
 let directPageIp='',serialDirectCap=false;function paintDirectPageQr(){let ready=!!directPageIp&&ipInput.value.trim()===directPageIp;$('#showDirectCarQr').hidden=!ready;$('#showDirectUsbQr').hidden=!ready}if(carHostedPage){for(const id of ['carHostedNotice','carHostedPeerNotice','carHostedUsbNotice'])$('#'+id).hidden=false}
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 let lastConnectionState='disconnected';
+function updateDirectFallback(state){let box=$('#directFallback'),ip=ipInput.value.trim(),code=codeInput.value.trim();let show=state==='error'&&!carHostedPage&&!lastAttemptViaRelay&&!lastAttemptAuthFailed&&validLocalIP(ip)&&/^\d{6}$/.test(code);box.hidden=!show;if(show){let url=new URL('http://'+ip+'/');url.hash=new URLSearchParams({join:ip,code}).toString();$('#directFallbackLink').href=url.href}}
 function paintConnection(state){
+ updateDirectFallback(state);
  const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
  connectionStatus.textContent=calUpgradeRequired&&carConnected?'請更新小車韌體後再控制。':state==='error'?'尚未連線':(messages[state]||state);if(state==='error'&&lastConnectionState!=='error')notify(messages.error,'error');lastConnectionState=state;
  const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';$('#connectionCarTabStatus').textContent=navLabels[state]||'未連線';$('#desktopConnectStatus').textContent=navLabels[state]||'未連線';$('#carConnect').setAttribute('aria-label','連線：'+(messages[state]||'尚未連線'));nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
@@ -188,10 +190,11 @@ function diagnosticLog(message){let list=$('#carDiagnosticLog'),item=document.cr
 function startCarDiagnostics(){let attempt=++carDiagnosticAttempt;$('#carDiagnosticLog').replaceChildren();diagnosticLog('開始連線小車。');$('#carDiagnosticPermission').textContent='區域網路權限：檢查中';(async()=>{let state;try{state=(await navigator.permissions.query({name:'local-network'})).state}catch(e){state='unsupported'}if(attempt!==carDiagnosticAttempt)return;let labels={granted:'已允許',denied:'已封鎖',prompt:'需要詢問或尚未決定',unsupported:'瀏覽器無法查詢'};$('#carDiagnosticPermission').textContent='區域網路權限：'+(labels[state]||'無法判斷')})()}
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請輸入區域網路 IP 與 6 位數配對碼。','error');return}
- startCarDiagnostics();let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){diagnosticLog('瀏覽器無法建立連線（'+(e?.name||'錯誤')+'）。');$('#carDiagnostics').open=true;paintConnection('error');return}
+ lastAttemptViaRelay=false;lastAttemptAuthFailed=false;startCarDiagnostics();let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){diagnosticLog('瀏覽器無法建立連線（'+(e?.name||'錯誤')+'）。');$('#carDiagnostics').open=true;paintConnection('error');return}
  attachCarSocket(ws,ip,code,false);
 };
 function attachCarSocket(ws,ip,code,viaRelay){
+ lastAttemptViaRelay=viaRelay;lastAttemptAuthFailed=false;
  const epoch=++connectionEpoch;carCalSupported=false;carCalibration=null;calUpgradeRequired=false;clearTimeout(calCapabilityTimer);carSocket=ws;if(ip)store('rover_car_ip',ip);paintConnection('connecting');
  const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('逾時：8 秒內沒有完成連線或驗證。');$('#carDiagnostics').open=true;ws.close();paintConnection('error')}},8000);
  ws.onopen=()=>{if(epoch===connectionEpoch){diagnosticLog('已建立連線，正在驗證配對碼。');ws.send('AUTH:'+code)}};
@@ -202,7 +205,7 @@ function attachCarSocket(ws,ip,code,viaRelay){
   else if(e.data==='CAPS:CAL1'){carCalSupported=true;sendCar('CALCLIENT:1')}
   else if(e.data.startsWith('CAL:')||e.data.startsWith('CALSAVED:')||e.data.startsWith('CALERROR:')){handleCalibrationMessage(e.data)}
   else if(e.data.startsWith('SHARE:')){handleShareMessage(e.data)}
-  else if(e.data==='AUTH:FAIL'){diagnosticLog('小車拒絕配對碼。');$('#carDiagnostics').open=true;clearTimeout(timer);paintConnection('error')}
+  else if(e.data==='AUTH:FAIL'){lastAttemptAuthFailed=true;diagnosticLog('小車拒絕配對碼。');$('#carDiagnostics').open=true;clearTimeout(timer);paintConnection('error')}
   else if(e.data.startsWith('STATE:')){let v=e.data.slice(6);if(v!=='OWNER')lostControl();carOwner=v==='OWNER';paintConnection(v==='OWNER'?'owner':v==='BUSY'?'busy':'free')}
  };
  ws.onerror=()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('連線發生錯誤；瀏覽器未提供具體原因。');$('#carDiagnostics').open=true;paintConnection('error')}};
@@ -221,7 +224,7 @@ $('#showDirectCarQr').onclick=()=>showCarQr('#carQrPanel','#carQrCanvas',true);
 $('#showDirectUsbQr').onclick=()=>showCarQr('#usbCarQrPanel','#usbCarQrCanvas',true);
 $('#closeCarQr').onclick=()=>{$('#carQrPanel').hidden=true};
 $('#closeUsbCarQr').onclick=()=>{$('#usbCarQrPanel').hidden=true};
-for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{paintDirectPageQr();$('#carQrPanel').hidden=true;$('#usbCarQrPanel').hidden=true;$('#showUsbCarQr').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim())});
+for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{updateDirectFallback(lastConnectionState);paintDirectPageQr();$('#carQrPanel').hidden=true;$('#usbCarQrPanel').hidden=true;$('#showUsbCarQr').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim())});
 $('#shareCar').onclick=async()=>{let ip=ipInput.value.trim();if(!validLocalIP(ip)){notify('先輸入小車 IP。');return}let url=new URL(location.href);url.searchParams.set('car',ip);url.hash='';try{if(navigator.share)await navigator.share({title:'加入小車',url:url.href});else{await navigator.clipboard.writeText(url.href);notify('已複製連結；配對碼請另外告訴組員。')}}catch(e){if(e.name!=='AbortError')notify('無法分享連結，請將 IP 和配對碼告訴組員。')}};
 setInterval(()=>{if(!carConnected||!carOwner||document.hidden)return;if(!sendCar('PING'))return;if(carMotor.frame)sendCar(carMotor.frame)},150);
 let wifiAttempt=null,wifiTimer=null,serialQueryBusy=false,lastSerialState='',serialHandshakeTimer=null,serialAcknowledged=false,savedWifiName='',wifiNameDirty=false;
@@ -314,11 +317,12 @@ $('#flashFirmwareDirect').onclick=()=>flashCarFirmware(true);
 async function handleScannedCar(){
  const params=new URLSearchParams(location.hash.slice(1)),ip=params.get('join'),code=params.get('code');
  if(!ip||!code)return;
- history.replaceState(history.state,'',location.pathname+location.search);
+ history.replaceState(history.state,'',location.origin+location.pathname+location.search);
  if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('QR Code 的小車資訊無效。');return}
  const alreadyConnected=carConnected||carSocket?.readyState===WebSocket.CONNECTING;
  ipInput.value=ip;applyCarPairCode(code);$('#carQrPanel').hidden=true;showPage('connection');setConnectionPanel('car');
  if(alreadyConnected){connectionStatus.textContent='已填入新的小車資訊；請先斷線，再按「連線」。';return}
+ if(carHostedPage){$('#connectSubmit').click();return}
  let permission='prompt';try{if(navigator.permissions?.query)permission=(await navigator.permissions.query({name:'local-network'})).state}catch(e){}
  if(permission==='granted'){$('#connectSubmit').click()}
  else if(permission==='denied'){connectionStatus.textContent='尚未連線';notify('請在瀏覽器網站設定允許區域網路，然後按「連線」。','error');}
@@ -326,6 +330,7 @@ async function handleScannedCar(){
 }
 window.addEventListener('hashchange',handleScannedCar);
 window.addEventListener('pageshow',handleScannedCar);
+if(carHostedPage&&location.hash)queueMicrotask(handleScannedCar);
 handleScannedCar();
 
 // A share is a one-time snapshot relayed by the authenticated car; it is never executed on receipt.
