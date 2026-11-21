@@ -165,7 +165,7 @@ window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d
 let connectedCarAddress=null,lastAttemptViaRelay=false,lastAttemptAuthFailed=false;
 let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false,shareSupported=false,wifiPairReady=false,peerHostCarCode='';
 const ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
-let directPageIp='',serialDirectCap=false;function paintDirectPageQr(){let ready=!!directPageIp&&ipInput.value.trim()===directPageIp;$('#showDirectCarQr').hidden=!ready;$('#showDirectUsbQr').hidden=!ready}if(carHostedPage){for(const id of ['carHostedNotice','carHostedUsbNotice'])$('#'+id).hidden=false}
+let directPageIp='',serialDirectCap=false;function paintDirectPageQr(){let ready=!carHostedPage&&!!directPageIp&&ipInput.value.trim()===directPageIp;$('#showDirectCarQr').hidden=!ready;$('#showDirectUsbQr').hidden=!ready}if(carHostedPage){for(const id of ['carHostedNotice','carHostedUsbNotice'])$('#'+id).hidden=false}
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 let lastConnectionState='disconnected';
 function updateDirectFallback(state){let box=$('#directFallback'),ip=ipInput.value.trim(),code=codeInput.value.trim();let show=state==='error'&&!carHostedPage&&!lastAttemptViaRelay&&!lastAttemptAuthFailed&&validLocalIP(ip)&&/^\d{6}$/.test(code);box.hidden=!show;if(show){let url=new URL('http://'+ip+'/');url.hash=new URLSearchParams({join:ip,code}).toString();$('#directFallbackLink').href=url.href}}
