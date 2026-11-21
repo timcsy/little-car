@@ -194,3 +194,7 @@
 #controlCanvas .spacing-y::before{content:'';position:absolute;top:0;bottom:0;left:3px;border-left:1px solid}
 #controlCanvas .controller-spacing span{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;border-radius:4px;padding:2px 4px;background:#fff0f9;color:#ac237c;font-size:10px;font-weight:700;line-height:1.2}
 #controlCanvas .spacing-equal span{background:#b33888;color:#fff}
+#page-connection .car-diagnostics{margin:10px 0;color:#536782;font-size:14px}
+#page-connection .car-diagnostics summary{cursor:pointer;font-weight:700;color:#3467a6}
+#page-connection .car-diagnostics p{margin:8px 0 4px}
+#page-connection .car-diagnostics ol{margin:4px 0;padding-left:22px;line-height:1.5}

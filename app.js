@@ -180,23 +180,26 @@ function rememberPairCode(key,value){if(/^\d{6}$/.test(value)||!value)store(key,
 function applyCarPairCode(value){codeInput.value=value;rememberPairCode('rover_car_code',value);const group=$('#peerCode');if(!group.disabled){group.value=value;rememberPairCode('rover_peer_code',value);group.dispatchEvent(new Event('input',{bubbles:true}))}}
 const rememberedCarCode=read('rover_car_code',''),rememberedPeerCode=read('rover_peer_code',null);if(typeof rememberedCarCode==='string'&&/^\d{6}$/.test(rememberedCarCode))codeInput.value=rememberedCarCode;if(typeof rememberedPeerCode==='string'&&/^\d{6}$/.test(rememberedPeerCode))$('#peerCode').value=rememberedPeerCode;else if(rememberedPeerCode===null&&/^\d{6}$/.test(codeInput.value))$('#peerCode').value=codeInput.value;
 codeInput.addEventListener('input',()=>rememberPairCode('rover_car_code',codeInput.value.trim()));
+let carDiagnosticAttempt=0;
+function diagnosticLog(message){let list=$('#carDiagnosticLog'),item=document.createElement('li');item.textContent=message;list.appendChild(item)}
+function startCarDiagnostics(){let attempt=++carDiagnosticAttempt;$('#carDiagnosticLog').replaceChildren();diagnosticLog('開始連線小車。');$('#carDiagnosticPermission').textContent='區域網路權限：檢查中';(async()=>{let state;try{state=(await navigator.permissions.query({name:'local-network'})).state}catch(e){state='unsupported'}if(attempt!==carDiagnosticAttempt)return;let labels={granted:'已允許',denied:'已封鎖',prompt:'需要詢問或尚未決定',unsupported:'瀏覽器無法查詢'};$('#carDiagnosticPermission').textContent='區域網路權限：'+(labels[state]||'無法判斷')})()}
 $('#connectSubmit').onclick=()=>{
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請輸入區域網路 IP 與 6 位數配對碼。','error');return}
- let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){paintConnection('error');return}
+ startCarDiagnostics();let ws;const socketUrl=`ws://${ip}:81/`;try{try{ws=new WebSocket(socketUrl,{targetAddressSpace:'local'})}catch(e){if(!(e instanceof SyntaxError)&&e?.name!=='SyntaxError'&&e?.name!=='TypeError')throw e;ws=new WebSocket(socketUrl)}}catch(e){diagnosticLog('瀏覽器無法建立連線（'+(e?.name||'錯誤')+'）。');$('#carDiagnostics').open=true;paintConnection('error');return}
  const epoch=++connectionEpoch;carCalSupported=false;carCalibration=null;calUpgradeRequired=false;clearTimeout(calCapabilityTimer);carSocket=ws;store('rover_car_ip',ip);paintConnection('connecting');
- const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){ws.close();paintConnection('error')}},8000);
- ws.onopen=()=>{if(epoch===connectionEpoch)ws.send('AUTH:'+code)};
+ const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('逾時：8 秒內沒有完成連線或驗證。');$('#carDiagnostics').open=true;ws.close();paintConnection('error')}},8000);
+ ws.onopen=()=>{if(epoch===connectionEpoch){diagnosticLog('已建立連線，正在驗證配對碼。');ws.send('AUTH:'+code)}};
  ws.onmessage=e=>{if(epoch!==connectionEpoch||typeof e.data!=='string')return;
-  if(e.data==='AUTH:OK'){clearTimeout(timer);applyCarPairCode(code);carConnected=true;paintConnection('free');calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
+  if(e.data==='AUTH:OK'){diagnosticLog('配對成功。');clearTimeout(timer);applyCarPairCode(code);carConnected=true;paintConnection('free');calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
   else if(e.data==='CAPS:SHARE1'){shareSupported=true}
   else if(e.data==='CAPS:CAL1'){carCalSupported=true;sendCar('CALCLIENT:1')}
   else if(e.data.startsWith('CAL:')||e.data.startsWith('CALSAVED:')||e.data.startsWith('CALERROR:')){handleCalibrationMessage(e.data)}
   else if(e.data.startsWith('SHARE:')){handleShareMessage(e.data)}
-  else if(e.data==='AUTH:FAIL'){clearTimeout(timer);paintConnection('error')}
+  else if(e.data==='AUTH:FAIL'){diagnosticLog('小車拒絕配對碼。');$('#carDiagnostics').open=true;clearTimeout(timer);paintConnection('error')}
   else if(e.data.startsWith('STATE:')){let v=e.data.slice(6);if(v!=='OWNER')lostControl();carOwner=v==='OWNER';paintConnection(v==='OWNER'?'owner':v==='BUSY'?'busy':'free')}
  };
- ws.onerror=()=>{if(epoch===connectionEpoch&&!carConnected)paintConnection('error')};
- ws.onclose=()=>{clearTimeout(timer);if(epoch!==connectionEpoch)return;let was=carConnected;lostControl();rejectCalibration('小車已斷線，校正未完成。');clearTimeout(calCapabilityTimer);carCalSupported=false;carCalibration=null;calUpgradeRequired=false;carConnected=false;carSocket=null;shareSupported=false;shareDisconnected();paintConnection(was?'disconnected':'error');if(was)notify('小車連線已中斷。')};
+ ws.onerror=()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('連線發生錯誤；瀏覽器未提供具體原因。');$('#carDiagnostics').open=true;paintConnection('error')}};
+ ws.onclose=e=>{clearTimeout(timer);if(epoch!==connectionEpoch)return;diagnosticLog('連線已關閉（代碼 '+e.code+'）。');if(!carConnected)$('#carDiagnostics').open=true;let was=carConnected;lostControl();rejectCalibration('小車已斷線，校正未完成。');clearTimeout(calCapabilityTimer);carCalSupported=false;carCalibration=null;calUpgradeRequired=false;carConnected=false;carSocket=null;shareSupported=false;shareDisconnected();paintConnection(was?'disconnected':'error');if(was)notify('小車連線已中斷。')};
 };
 $('#claimControl').onclick=()=>sendCar('CLAIM');
 $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={frame:null};sendCar('RELEASE')};
