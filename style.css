@@ -211,3 +211,5 @@
 #page-connection .direct-fallback[hidden]{display:none}
 #page-connection .direct-fallback a{display:inline-flex;align-items:center;min-height:42px;padding:8px 12px;border-radius:8px;background:#4c97ff;color:#fff;text-decoration:none;font-weight:700}
 #page-connection .direct-fallback small{font-size:12px;line-height:1.4;color:#59718d}
+#page-connection .car-qr .qr-url-label{margin:10px 0 4px;font-size:12px;font-weight:700}
+#page-connection .car-qr .qr-url{display:block;overflow-wrap:anywhere;word-break:break-word;user-select:text;color:#315e9c;background:#f1f6fc;border-radius:8px;padding:8px;font-size:13px;line-height:1.45;text-align:left}

@@ -216,7 +216,7 @@ $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={fram
 $('#disconnectCar').onclick=()=>{if(carOwner)sendCar('RELEASE');carSocket?.close()};
 async function showCarQr(panel,canvas,direct=false){
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請先填入小車 IP 和 6 位數配對碼。');return}
- try{const qr=await import('./vendor/rover-qr.js');const url=direct?new URL('http://'+ip+'/'):new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($(canvas),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$(panel).hidden=false;$(panel).scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
+ try{const qr=await import('./vendor/rover-qr.js');const url=direct?new URL('http://'+ip+'/'):new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($(canvas),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$(panel).querySelector('.qr-url').textContent=url.href;$(panel).hidden=false;$(panel).scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
 }
 $('#showCarQr').onclick=()=>showCarQr('#carQrPanel','#carQrCanvas');
 $('#showUsbCarQr').onclick=()=>showCarQr('#usbCarQrPanel','#usbCarQrCanvas');
