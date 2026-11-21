@@ -1,5 +1,6 @@
 'use strict';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const carHostedPage=!!document.querySelector('meta[name="rover-car-hosted"]');
 let workspace, sim={left:0,right:0}, runToken=0, timerStarted=0,timerElapsed=0,timerId=null;
 let carConnected=false, carOwner=false, carSocket=null, carMotor={frame:null},carCalSupported=false,carCalibration=null,calibrationPending=null,calCapabilityTimer=null,calUpgradeRequired=false,calRequestId=0;
 function requireCar(){if(!carConnected){notify('小車未連線，請先連線。');return false}if(!carCalSupported||!carCalibration){notify('請更新小車韌體，並重新連線。','error');return false}if(!carOwner){notify('請先取得控制權。');return false}if(calibrationPending){notify('正在儲存校正，請稍候。');return false}return true}
@@ -164,6 +165,7 @@ window.addEventListener('message',e=>{const f=document.querySelector('.wiring-3d
 let connectedCarAddress=null;
 let connectionEpoch=0,serialPort=null,serialReader=null,serialReading=false,shareSupported=false,wifiPairReady=false,peerHostCarCode='';
 const ipInput=$('#carIp'), codeInput=$('#carCode'), connectionStatus=$('#connectionStatus');
+let directPageIp='',serialDirectCap=false;function paintDirectPageQr(){let ready=!!directPageIp&&ipInput.value.trim()===directPageIp;$('#showDirectCarQr').hidden=!ready;$('#showDirectUsbQr').hidden=!ready}if(carHostedPage){for(const id of ['carHostedNotice','carHostedPeerNotice','carHostedUsbNotice'])$('#'+id).hidden=false}
 function validLocalIP(value){const p=value.split('.');if(p.length!==4||p.some(x=>!/^\d{1,3}$/.test(x)||Number(x)>255))return false;const [a,b]=p.map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)}
 let lastConnectionState='disconnected';
 function paintConnection(state){
@@ -176,7 +178,7 @@ function paintConnection(state){
 }
 function lostControl(){if(carOwner){rejectCalibration('控制權已交出，校正未完成。');runToken++;sim={left:0,right:0};carMotor={frame:null};carOwner=false;$('#simMessage').textContent='控制權已交出或連線中斷。'}}
 
-const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else ipInput.value=read('rover_car_ip','');
+const sharedIp=new URL(location.href).searchParams.get('car');if(sharedIp&&validLocalIP(sharedIp))ipInput.value=sharedIp;else if(carHostedPage&&validLocalIP(location.hostname))ipInput.value=location.hostname;else ipInput.value=read('rover_car_ip','');
 function rememberPairCode(key,value){if(/^\d{6}$/.test(value)||!value)store(key,value)}
 function applyCarPairCode(value){codeInput.value=value;rememberPairCode('rover_car_code',value);const group=$('#peerCode');if(!group.disabled){group.value=value;rememberPairCode('rover_peer_code',value);group.dispatchEvent(new Event('input',{bubbles:true}))}}
 const rememberedCarCode=read('rover_car_code',''),rememberedPeerCode=read('rover_peer_code',null);if(typeof rememberedCarCode==='string'&&/^\d{6}$/.test(rememberedCarCode))codeInput.value=rememberedCarCode;if(typeof rememberedPeerCode==='string'&&/^\d{6}$/.test(rememberedPeerCode))$('#peerCode').value=rememberedPeerCode;else if(rememberedPeerCode===null&&/^\d{6}$/.test(codeInput.value))$('#peerCode').value=codeInput.value;
@@ -194,7 +196,8 @@ function attachCarSocket(ws,ip,code,viaRelay){
  const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('逾時：8 秒內沒有完成連線或驗證。');$('#carDiagnostics').open=true;ws.close();paintConnection('error')}},8000);
  ws.onopen=()=>{if(epoch===connectionEpoch){diagnosticLog('已建立連線，正在驗證配對碼。');ws.send('AUTH:'+code)}};
  ws.onmessage=e=>{if(epoch!==connectionEpoch||typeof e.data!=='string')return;
-  if(e.data==='AUTH:OK'){diagnosticLog('配對成功。');clearTimeout(timer);applyCarPairCode(code);carConnected=true;if(!viaRelay)connectedCarAddress={ip,code};paintConnection('free');if(!viaRelay&&!peerRole&&!peerStarting){peerHostCarCode=code;queueMicrotask(()=>startPeerHost(code))}if(viaRelay){$('#relayLatency').hidden=false;startRelayLatency();paintPeer();setConnectionPanel('car')}calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
+  if(e.data==='AUTH:OK'){diagnosticLog('配對成功。');clearTimeout(timer);applyCarPairCode(code);carConnected=true;if(!viaRelay)connectedCarAddress={ip,code};paintConnection('free');if(!viaRelay&&!carHostedPage&&!peerRole&&!peerStarting){peerHostCarCode=code;queueMicrotask(()=>startPeerHost(code))}if(viaRelay){$('#relayLatency').hidden=false;startRelayLatency();paintPeer();setConnectionPanel('car')}calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
+  else if(e.data==='CAPS:HTTP1'&&!viaRelay){directPageIp=ip;paintDirectPageQr()}
   else if(e.data==='CAPS:SHARE1'){shareSupported=!viaRelay}
   else if(e.data==='CAPS:CAL1'){carCalSupported=true;sendCar('CALCLIENT:1')}
   else if(e.data.startsWith('CAL:')||e.data.startsWith('CALSAVED:')||e.data.startsWith('CALERROR:')){handleCalibrationMessage(e.data)}
@@ -208,15 +211,17 @@ function attachCarSocket(ws,ip,code,viaRelay){
 $('#claimControl').onclick=()=>sendCar('CLAIM');
 $('#releaseControl').onclick=()=>{runToken++;sim={left:0,right:0};carMotor={frame:null};sendCar('RELEASE')};
 $('#disconnectCar').onclick=()=>{if(carOwner)sendCar('RELEASE');carSocket?.close()};
-async function showCarQr(panel,canvas){
+async function showCarQr(panel,canvas,direct=false){
  const ip=ipInput.value.trim(),code=codeInput.value.trim();if(!validLocalIP(ip)||!/^\d{6}$/.test(code)){notify('請先填入小車 IP 和 6 位數配對碼。');return}
- try{const qr=await import('./vendor/rover-qr.js');const url=new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($(canvas),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$(panel).hidden=false;$(panel).scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
+ try{const qr=await import('./vendor/rover-qr.js');const url=direct?new URL('http://'+ip+'/'):new URL(location.href);url.searchParams.delete('car');url.hash=new URLSearchParams({join:ip,code}).toString();await qr.toCanvas($(canvas),url.href,{width:240,margin:3,errorCorrectionLevel:'M'});$(panel).hidden=false;$(panel).scrollIntoView({block:'nearest',behavior:'smooth'})}catch(e){console.error('QR generation failed',e);notify('無法產生 QR Code，請重新整理後再試。')}
 }
 $('#showCarQr').onclick=()=>showCarQr('#carQrPanel','#carQrCanvas');
 $('#showUsbCarQr').onclick=()=>showCarQr('#usbCarQrPanel','#usbCarQrCanvas');
+$('#showDirectCarQr').onclick=()=>showCarQr('#carQrPanel','#carQrCanvas',true);
+$('#showDirectUsbQr').onclick=()=>showCarQr('#usbCarQrPanel','#usbCarQrCanvas',true);
 $('#closeCarQr').onclick=()=>{$('#carQrPanel').hidden=true};
 $('#closeUsbCarQr').onclick=()=>{$('#usbCarQrPanel').hidden=true};
-for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{$('#carQrPanel').hidden=true;$('#usbCarQrPanel').hidden=true;$('#showUsbCarQr').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim())});
+for(const field of [ipInput,codeInput])field.addEventListener('input',()=>{paintDirectPageQr();$('#carQrPanel').hidden=true;$('#usbCarQrPanel').hidden=true;$('#showUsbCarQr').disabled=!wifiPairReady||!validLocalIP(ipInput.value.trim())||!/^\d{6}$/.test(codeInput.value.trim())});
 $('#shareCar').onclick=async()=>{let ip=ipInput.value.trim();if(!validLocalIP(ip)){notify('先輸入小車 IP。');return}let url=new URL(location.href);url.searchParams.set('car',ip);url.hash='';try{if(navigator.share)await navigator.share({title:'加入小車',url:url.href});else{await navigator.clipboard.writeText(url.href);notify('已複製連結；配對碼請另外告訴組員。')}}catch(e){if(e.name!=='AbortError')notify('無法分享連結，請將 IP 和配對碼告訴組員。')}};
 setInterval(()=>{if(!carConnected||!carOwner||document.hidden)return;if(!sendCar('PING'))return;if(carMotor.frame)sendCar(carMotor.frame)},150);
 let wifiAttempt=null,wifiTimer=null,serialQueryBusy=false,lastSerialState='',serialHandshakeTimer=null,serialAcknowledged=false,savedWifiName='',wifiNameDirty=false;
@@ -230,9 +235,10 @@ function serialAcknowledgement(){serialAcknowledged=true;paintUsbStatus('已連�
 function startSerialHandshake(){clearInterval(serialHandshakeTimer);serialAcknowledged=false;let started=Date.now();serialHandshakeTimer=setInterval(async()=>{if(!serialPort||serialAcknowledged){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;return}if(Date.now()-started>=12000){clearInterval(serialHandshakeTimer);serialHandshakeTimer=null;paintUsbStatus('未回應');serialError('USB 已開啟，但小車沒有回應。請按一下板上的 RESET，或確認已燒錄小車韌體。');serialLog('未收到小車回應，請按 RESET 或檢查韌體。');return}if(!serialQueryBusy){serialQueryBusy=true;try{await serialWrite('STATUS')}catch(e){}finally{serialQueryBusy=false}}},2000)}
 function serialStatusLine(line){
  const parts=line.split('\t');
+ if(parts[0]==='CAPS'&&parts[1]==='HTTP1'){serialDirectCap=true;return}
  if(parts[0]==='WIFIINFO'&&parts.length===3&&['0','1'].includes(parts[2])){const previous=savedWifiName; savedWifiName=parts[1];if(savedWifiName!==previous&&(!wifiNameDirty||$('#wifiName').value===previous)){$('#wifiName').value=savedWifiName;$('#keepWifiPassword').checked=true;$('#wifiPassword').value=''}updateSavedWifiChoice();return}
  if(parts[0]==='PAIR'&&validLocalIP(parts[1])&&/^\d{6}$/.test(parts[2])){
-  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=false;$('#showUsbCarQr').disabled=false;$('#usbCarQrPanel').hidden=true;$('#carQrPanel').hidden=true;ipInput.value=parts[1];applyCarPairCode(parts[2]);store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的小組屬於另一台小車；如需切換，請先離開小組。');$('#serialStatus').textContent='已讀取小車資訊。要控制小車，請前往「區域網路」分頁。';
+  serialAcknowledgement();let wasAttempt=!!wifiAttempt;endWifiAttempt();wifiPairReady=true;$('#connectAfterWifi').disabled=false;$('#showUsbCarQr').disabled=false;$('#usbCarQrPanel').hidden=true;$('#carQrPanel').hidden=true;ipInput.value=parts[1];if(serialDirectCap)directPageIp=parts[1];else directPageIp='';paintDirectPageQr();applyCarPairCode(parts[2]);store('rover_car_ip',parts[1]);peerHostCarCode=parts[2];if(!peerRole&&!peerStarting){$('#peerCode').value=parts[2];queueMicrotask(()=>startPeerHost(parts[2]))}else if(peerCodeValue!==parts[2])serialLog('目前加入的小組屬於另一台小車；如需切換，請先離開小組。');$('#serialStatus').textContent='已讀取小車資訊。要控制小車，請前往「區域網路」分頁。';
   if(lastSerialState!=='PAIR'||wasAttempt)serialLog('小車已連上 Wi-Fi；IP：'+parts[1]+'，配對碼已填入。');lastSerialState='PAIR';return;
  }
  if(parts[0]==='STATUS'){
@@ -255,7 +261,7 @@ function startWifiAttempt(){
 }
 $('#serialConnect').onclick=async()=>{
  if(!('serial' in navigator)){ serialError('請使用電腦版 Chrome 或 Edge 的 HTTPS 網頁。');serialLog('此瀏覽器不支援 Web Serial。');return}
- try{serialPort=await navigator.serial.requestPort();await serialPort.open({baudRate:115200});savedWifiName='';wifiNameDirty=false;$('#keepWifiPassword').checked=false;updateSavedWifiChoice();serialReading=true;paintUsbStatus('連線中');lastSerialState='';serialLog('USB 序列埠已開啟，正在查詢小車。');$('#serialStatus').textContent='USB 已開啟，正在查詢小車…';$('#serialSave').disabled=true;$('#serialDisconnect').disabled=false;$('#serialConnect').disabled=true;startSerialHandshake();
+ try{serialPort=await navigator.serial.requestPort();await serialPort.open({baudRate:115200});serialDirectCap=false;savedWifiName='';wifiNameDirty=false;$('#keepWifiPassword').checked=false;updateSavedWifiChoice();serialReading=true;paintUsbStatus('連線中');lastSerialState='';serialLog('USB 序列埠已開啟，正在查詢小車。');$('#serialStatus').textContent='USB 已開啟，正在查詢小車…';$('#serialSave').disabled=true;$('#serialDisconnect').disabled=false;$('#serialConnect').disabled=true;startSerialHandshake();
   (async()=>{let buf='',decoder=new TextDecoder();try{while(serialPort?.readable&&serialReading){serialReader=serialPort.readable.getReader();try{while(serialReading){const {value,done}=await serialReader.read();if(done)break;buf+=decoder.decode(value,{stream:true});let idx;while((idx=buf.indexOf('\n'))>=0){serialStatusLine(buf.slice(0,idx).replace(/\r$/, ''));buf=buf.slice(idx+1)}if(buf.length>1000)buf=''}}finally{serialReader.releaseLock();serialReader=null}}}catch(e){if(serialReading){endWifiAttempt();serialError('USB 連線已中斷，請結束 USB 後重新連接。');serialLog('USB 讀取中斷。');paintUsbStatus('已中斷')}}finally{serialReading=false}})();
   await serialWrite('STATUS');
  }catch(e){if(e?.name==='NotFoundError'){serialError('已取消選擇。準備好後，再按「連接 USB」。');serialLog('已取消選擇 USB。')}else{serialError('無法連接 USB。請確認線有插好，並關閉其他使用 USB 的程式。');serialLog('無法開啟 USB 序列埠。')}serialPort=null;paintUsbStatus('未連接')}
@@ -272,17 +278,18 @@ const firmwareImages=[
  {name:'boot_app0.bin',address:0xe000,sha:'f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0'},
  {name:'firmware.bin',address:0x10000,sha:'edcf753bb49b493ac1e83f49c103a488281c3c439a7521e8d27401e9b74710bd'}
 ];
-$('#flashFirmware').onclick=async()=>{
- const status=$('#flashStatus'),button=$('#flashFirmware'),progress=$('#flashProgress');
+async function flashCarFirmware(direct){
+ const status=$('#flashStatus'),button=$(direct?'#flashFirmwareDirect':'#flashFirmware'),progress=$('#flashProgress');
+ const images=direct?firmwareImages.map(f=>f.name==='firmware.bin'?{...f,name:'firmware-direct-test.bin',sha:'c32e1dc5b03dba1bc0a5de7905e004a24ee4ff903fb024ef03bc79c199ee2974'}:f):firmwareImages;
  if(!('serial' in navigator)){notify('請使用電腦版 Chrome 或 Edge 開啟 HTTPS 網頁。','error');return}
  if(serialPort){notify('請先按「結束 USB」，再進行燒錄。','error');return}
  let transport=null,port=null,finished=false,resetOk=true;
  try{
   // Keep requestPort inside the user gesture, before network or dynamic imports.
-  port=await navigator.serial.requestPort();button.disabled=true;$('#serialConnect').disabled=true;status.textContent='準備韌體…';progress.hidden=false;progress.value=0;
-  const [{ESPLoader,Transport},{md5},...responses]=await Promise.all([import('./vendor/esptool-js-0.7.1.js'),import('./vendor/rover-md5.js'),...firmwareImages.map(f=>fetch('./firmware/bin/'+f.name,{cache:'no-cache'}))]);
+  port=await navigator.serial.requestPort();$('#flashFirmware').disabled=true;$('#flashFirmwareDirect').disabled=true;$('#serialConnect').disabled=true;status.textContent='準備韌體…';progress.hidden=false;progress.value=0;
+  const [{ESPLoader,Transport},{md5},...responses]=await Promise.all([import('./vendor/esptool-js-0.7.1.js'),import('./vendor/rover-md5.js'),...images.map(f=>fetch('./firmware/bin/'+f.name,{cache:'no-cache'}))]);
   const files=[];for(let i=0;i<responses.length;i++){
-   if(!responses[i].ok)throw new Error('無法下載韌體檔案');let data=new Uint8Array(await responses[i].arrayBuffer());let digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));let hex=Array.from(digest,v=>v.toString(16).padStart(2,'0')).join('');if(hex!==firmwareImages[i].sha)throw new Error('韌體檔案檢查失敗，請重新整理後再試');files.push({data,address:firmwareImages[i].address});
+   if(!responses[i].ok)throw new Error('無法下載韌體檔案');let data=new Uint8Array(await responses[i].arrayBuffer());let digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));let hex=Array.from(digest,v=>v.toString(16).padStart(2,'0')).join('');if(hex!==images[i].sha)throw new Error('韌體檔案檢查失敗，請重新整理後再試');files.push({data,address:images[i].address});
   }
   transport=new Transport(port,true);const terminal={clean(){},writeLine(){},write(){}};
   const loader=new ESPLoader({transport,baudrate:115200,terminal});status.textContent='正在辨識板子，請稍候…';const chip=await loader.main();
@@ -297,9 +304,11 @@ $('#flashFirmware').onclick=async()=>{
   else {console.error('Flash failed',e);status.textContent='燒錄未完成。';notify('燒錄未完成：'+(e?.message||'請檢查 USB 連接')+'。可按住 BOOT、按一下 RESET 後重試。','error')}
  }finally{
   if(transport){try{await transport.disconnect()}catch(e){if(finished)status.textContent='燒錄完成並驗證成功。請重新插拔 USB，再按「連接 USB」。'}}
-  button.disabled=false;$('#serialConnect').disabled=!!serialPort;
+  $('#flashFirmware').disabled=false;$('#flashFirmwareDirect').disabled=false;$('#serialConnect').disabled=!!serialPort;
  }
-};
+}
+$('#flashFirmware').onclick=()=>flashCarFirmware(false);
+$('#flashFirmwareDirect').onclick=()=>flashCarFirmware(true);
 
 // A scanned code carries the IP and pairing code in the URL fragment, not in the HTTP request.
 async function handleScannedCar(){
@@ -459,7 +468,7 @@ function onPeerIncoming(conn){if(peerRole!=='host'){conn.close();return}let appr
 function showPeerRequest(){if(peerActiveRequest||!peerRequests.length||peerRole!=='host')return;peerActiveRequest=peerRequests.shift();$('#peerRequestText').textContent='核對碼 '+peerVerification+'。請讓組員確認畫面上的核對碼相同。';if(!peerRequestDialog.open)peerRequestDialog.showModal()}
 function resolvePeerRequest(allow){let c=peerActiveRequest;peerActiveRequest=null;if(peerRequestDialog.open)peerRequestDialog.close();if(c){if(allow)c._approve();else{try{c.send({t:'denied'});c.close()}catch(e){}}}showPeerRequest()}
 $('#peerAllow').onclick=()=>resolvePeerRequest(true);$('#peerDeny').onclick=()=>resolvePeerRequest(false);peerRequestDialog.addEventListener('cancel',e=>{e.preventDefault();resolvePeerRequest(false)});
-$('#peerJoin').onclick=async()=>{let code=$('#peerCode').value.trim();if(!/^\d{6}$/.test(code)){notify('請輸入 6 位數小車配對碼。');return}if(peerRole||peerStarting)return;peerStarting=true;peerCodeValue=code;let epoch=++peerEpoch;paintPeer();peerStatusText('正在尋找小組…');try{let PeerCtor=await loadPeerLibrary(),base=await peerCandidateBase(code),node=await makePeer(PeerCtor);if(epoch!==peerEpoch){node.destroy();return}peerNode=node;node.on('error',e=>{if(peerNode===node&&e.type!=='peer-unavailable')peerStatusText('小組連線發生問題，請重試。')});node.on('disconnected',()=>{if(peerNode===node)closePeerGroup('小組配對服務已中斷，請重新加入。')});let found=[];await Promise.all(Array.from({length:PEER_SLOTS},(_,slot)=>new Promise(resolve=>{let conn=node.connect(base+'-'+slot,{serialization:'json',reliable:true}),settled=false;let timer=setTimeout(()=>finish(),6500);function finish(candidate){if(settled)return;settled=true;clearTimeout(timer);if(candidate)found.push(candidate);else try{conn.close()}catch(e){}resolve()}conn.on('open',()=>conn.send({t:'probe'}));conn.on('data',d=>{if(d?.t==='info'&&d.v===1&&/^\d{4}$/.test(d.verify))finish({connection:conn,verify:d.verify,slot})});conn.on('error',()=>finish());conn.on('close',()=>finish())})));if(epoch!==peerEpoch)return;peerStarting=false;peerCandidates=found.sort((a,b)=>a.slot-b.slot);if(new Set(found.map(c=>c.verify)).size!==found.length){closePeerGroup('核對碼重複，請組長重新建立小組後再試。');return}if(!found.length){node.destroy();peerNode=null;peerCodeValue='';paintPeer();peerStatusText('找不到小組。請確認組長已讀取小車，並檢查網路。');return}let list=$('#peerCandidates');list.replaceChildren();let label=document.createElement('p');label.textContent='請向組長確認核對碼，點選相同的號碼送出加入申請：';list.append(label);for(const candidate of peerCandidates){let btn=document.createElement('button');btn.type='button';btn.className='peer-candidate';btn.setAttribute('aria-label','加入核對碼 '+candidate.verify);let code=document.createElement('span');code.textContent='核對碼 '+candidate.verify;let action=document.createElement('span');action.className='peer-candidate-action';action.textContent='加入 →';btn.append(code,action);btn.onclick=()=>requestPeerJoin(candidate);list.append(btn)}list.hidden=false;paintPeer();$('#peerJoin').disabled=true;peerStatusText('找到 '+found.length+' 個小組。')}catch(e){if(epoch!==peerEpoch)return;closePeerGroup('無法尋找小組，請確認網路後重試。')}};
+$('#peerJoin').onclick=async()=>{if(carHostedPage){notify('網際網路小組請在主網站使用。');return}let code=$('#peerCode').value.trim();if(!/^\d{6}$/.test(code)){notify('請輸入 6 位數小車配對碼。');return}if(peerRole||peerStarting)return;peerStarting=true;peerCodeValue=code;let epoch=++peerEpoch;paintPeer();peerStatusText('正在尋找小組…');try{let PeerCtor=await loadPeerLibrary(),base=await peerCandidateBase(code),node=await makePeer(PeerCtor);if(epoch!==peerEpoch){node.destroy();return}peerNode=node;node.on('error',e=>{if(peerNode===node&&e.type!=='peer-unavailable')peerStatusText('小組連線發生問題，請重試。')});node.on('disconnected',()=>{if(peerNode===node)closePeerGroup('小組配對服務已中斷，請重新加入。')});let found=[];await Promise.all(Array.from({length:PEER_SLOTS},(_,slot)=>new Promise(resolve=>{let conn=node.connect(base+'-'+slot,{serialization:'json',reliable:true}),settled=false;let timer=setTimeout(()=>finish(),6500);function finish(candidate){if(settled)return;settled=true;clearTimeout(timer);if(candidate)found.push(candidate);else try{conn.close()}catch(e){}resolve()}conn.on('open',()=>conn.send({t:'probe'}));conn.on('data',d=>{if(d?.t==='info'&&d.v===1&&/^\d{4}$/.test(d.verify))finish({connection:conn,verify:d.verify,slot})});conn.on('error',()=>finish());conn.on('close',()=>finish())})));if(epoch!==peerEpoch)return;peerStarting=false;peerCandidates=found.sort((a,b)=>a.slot-b.slot);if(new Set(found.map(c=>c.verify)).size!==found.length){closePeerGroup('核對碼重複，請組長重新建立小組後再試。');return}if(!found.length){node.destroy();peerNode=null;peerCodeValue='';paintPeer();peerStatusText('找不到小組。請確認組長已讀取小車，並檢查網路。');return}let list=$('#peerCandidates');list.replaceChildren();let label=document.createElement('p');label.textContent='請向組長確認核對碼，點選相同的號碼送出加入申請：';list.append(label);for(const candidate of peerCandidates){let btn=document.createElement('button');btn.type='button';btn.className='peer-candidate';btn.setAttribute('aria-label','加入核對碼 '+candidate.verify);let code=document.createElement('span');code.textContent='核對碼 '+candidate.verify;let action=document.createElement('span');action.className='peer-candidate-action';action.textContent='加入 →';btn.append(code,action);btn.onclick=()=>requestPeerJoin(candidate);list.append(btn)}list.hidden=false;paintPeer();$('#peerJoin').disabled=true;peerStatusText('找到 '+found.length+' 個小組。')}catch(e){if(epoch!==peerEpoch)return;closePeerGroup('無法尋找小組，請確認網路後重試。')}};
 function requestPeerJoin(candidate){let conn=candidate.connection;if(!conn.open){closePeerGroup('小組已離線，請重新尋找。');return}for(const c of peerCandidates)if(c!==candidate)try{c.connection.close()}catch(e){}peerCandidates=[];$('#peerCandidates').hidden=true;$('#peerCandidates').replaceChildren();peerUpstream=conn;peerStatusText('已送出申請，等待組長允許…');conn.on('data',d=>{if(d?.t==='approved'){peerRole='guest';paintPeer()}else if(d?.t==='denied'){closePeerGroup('組長未允許加入。')}else if(peerRole==='guest')guestPeerMessage(d)});conn.on('close',()=>{if(peerUpstream===conn)closePeerGroup('與小組的連線已中斷。')});conn.on('error',()=>{if(peerUpstream===conn)closePeerGroup('與小組的連線已中斷。')});conn.send({t:'request'});setTimeout(()=>{if(peerUpstream===conn&&!peerRole)closePeerGroup('組長未回應，請重新加入。')},40000)}
 function peerProjectFrames(text,id){let frames=[{t:'begin',id,size:text.length}];for(let i=0;i<text.length;i+=PEER_CHUNK)frames.push({t:'part',id,index:i/PEER_CHUNK,text:text.slice(i,i+PEER_CHUNK)});frames.push({t:'end',id});return frames}
 function peerSafeSend(conn,message){try{if(conn.open){conn.send(message);return true}}catch(e){}return false}

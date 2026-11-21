@@ -204,3 +204,6 @@
 #page-controller .controller-latency{font-size:11px;color:#436489;white-space:nowrap}
 #page-controller .controller-latency[hidden]{display:none}
 #page-connection #relayLatencyCar[hidden]{display:none}
+#page-connection .car-hosted-notice{font-size:13px;line-height:1.5;padding:8px 10px;margin:0 0 10px;border-radius:8px;background:#f0f6ff;color:#476889}
+#page-connection .car-hosted-notice[hidden]{display:none}
+#page-connection #showDirectCarQr[hidden],#page-connection #showDirectUsbQr[hidden]{display:none}
