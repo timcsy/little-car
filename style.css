@@ -213,3 +213,6 @@
 #page-connection .direct-fallback small{font-size:12px;line-height:1.4;color:#59718d}
 #page-connection .car-qr .qr-url-label{margin:10px 0 4px;font-size:12px;font-weight:700}
 #page-connection .car-qr .qr-url{display:block;overflow-wrap:anywhere;word-break:break-word;user-select:text;color:#315e9c;background:#f1f6fc;border-radius:8px;padding:8px;font-size:13px;line-height:1.45;text-align:left}
+#page-connection .peer-diagnostics{margin:10px 0;color:#536782;font-size:14px}
+#page-connection .peer-diagnostics summary{cursor:pointer;font-weight:700;color:#3467a6}
+#page-connection .peer-diagnostics ol{margin:8px 0;padding-left:22px;line-height:1.5}
