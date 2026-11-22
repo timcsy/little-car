@@ -171,7 +171,7 @@ let lastConnectionState='disconnected';
 function updateDirectFallback(state){let box=$('#directFallback'),ip=ipInput.value.trim(),code=codeInput.value.trim();let show=state==='error'&&!carHostedPage&&!lastAttemptViaRelay&&!lastAttemptAuthFailed&&validLocalIP(ip)&&/^\d{6}$/.test(code);box.hidden=!show;if(show){let url=new URL('http://'+ip+'/');url.hash=new URLSearchParams({join:ip,code}).toString();$('#directFallbackLink').href=url.href}}
 function paintConnection(state){
  updateDirectFallback(state);
- const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
+ const messages={disconnected:'尚未連線',connecting:'正在連線…',free:'已連線，等待取得控制權',busy:'已連線，另一位組員控制中',owner:'已連線，你正在控制',error:lastAttemptViaRelay?'透過組長連線失敗，請查看連線診斷。':'連線失敗。請確認小車與手機在同一網路，並允許瀏覽器存取區域網路。'};
  connectionStatus.textContent=calUpgradeRequired&&carConnected?'請更新小車韌體後再控制。':state==='error'?'尚未連線':(messages[state]||state);if(state==='error'&&lastConnectionState!=='error')notify(messages.error,'error');lastConnectionState=state;
  const nav=$('#navConnect'),navLabels={disconnected:'未連線',connecting:'連線中',free:'可接手',busy:'他人控制',owner:'控制中',error:'連線失敗'};nav.querySelector('span').textContent=navLabels[state]||'未連線';$('#connectionCarTabStatus').textContent=navLabels[state]||'未連線';$('#desktopConnectStatus').textContent=navLabels[state]||'未連線';$('#carConnect').setAttribute('aria-label','連線：'+(messages[state]||'尚未連線'));nav.dataset.connection=state;nav.setAttribute('aria-label',messages[state]||'尚未連線');
  $('#claimControl').hidden=!carConnected||state!=='free';$('#claimControl').disabled=!carCalSupported||!carCalibration;$$('.cal-offline').forEach(el=>el.hidden=!!(carConnected&&carCalSupported&&carCalibration));$('#releaseControl').hidden=!carConnected||state!=='owner';$('#disconnectCar').hidden=!carConnected;
@@ -196,7 +196,7 @@ $('#connectSubmit').onclick=()=>{
 function attachCarSocket(ws,ip,code,viaRelay){
  lastAttemptViaRelay=viaRelay;lastAttemptAuthFailed=false;
  const epoch=++connectionEpoch;carCalSupported=false;carCalibration=null;calUpgradeRequired=false;clearTimeout(calCapabilityTimer);carSocket=ws;if(ip)store('rover_car_ip',ip);paintConnection('connecting');
- const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('逾時：8 秒內沒有完成連線或驗證。');$('#carDiagnostics').open=true;ws.close();paintConnection('error')}},8000);
+ const timer=setTimeout(()=>{if(epoch===connectionEpoch&&!carConnected){diagnosticLog('逾時：8 秒內沒有完成連線或驗證。');$('#carDiagnostics').open=true;ws.close();paintConnection('error');if(viaRelay&&peerRole==='guest')peerStatusText('透過組長連線逾時，請到「區域網路」查看連線診斷。')}},8000);
  ws.onopen=()=>{if(epoch===connectionEpoch){diagnosticLog('已建立連線，正在驗證配對碼。');ws.send('AUTH:'+code)}};
  ws.onmessage=e=>{if(epoch!==connectionEpoch||typeof e.data!=='string')return;
   if(e.data==='AUTH:OK'){diagnosticLog('配對成功。');clearTimeout(timer);applyCarPairCode(code);carConnected=true;if(!viaRelay)connectedCarAddress={ip,code};paintConnection('free');if(!viaRelay&&!peerRole&&!peerStarting){peerHostCarCode=code;if(carHostedPage){paintPeer();peerStatusText('可尋找或建立小組。')}else queueMicrotask(()=>startPeerHost(code))}if(viaRelay){$('#relayLatency').hidden=false;startRelayLatency();paintPeer();setConnectionPanel('car')}calCapabilityTimer=setTimeout(()=>{if(epoch===connectionEpoch&&carConnected&&(!carCalSupported||!carCalibration)){calUpgradeRequired=true;paintConnection(lastConnectionState);notify('請更新小車韌體，才能使用共用校正。','error')}},2500)}
@@ -422,41 +422,52 @@ const peerStatus=$('#peerStatus'),peerRequestDialog=$('#peerRequestDialog');
 // Each approved guest receives a separate C3 WebSocket. The C3 remains the arbiter
 // for control and its motor/owner watchdogs remain active across the relay.
 let relayClient=null,relayLatencyTimer=null,relayLatencyPending=null,relayLatencySequence=0;
-function closeRelayedCar(conn){let ws=conn?._carRelay;if(!ws)return;conn._carRelay=null;conn._relayProbe=null;clearInterval(conn._relayWatchdog);conn._relayWatchdog=null;try{ws.close()}catch(e){}peerSafeSend(conn,{t:'car-relay-closed'})}
-function closeAllRelayedCars(){for(const conn of peerGuests)closeRelayedCar(conn)}
+function relayReply(conn,data,rid){if(rid)data.rid=rid;return peerSafeSend(conn,data)}
+function closeRelayedCar(conn,reason='closed'){let ws=conn?._carRelay;if(!ws)return;let rid=conn._relayId;conn._carRelay=null;conn._relayId=null;conn._relayProbe=null;clearInterval(conn._relayWatchdog);conn._relayWatchdog=null;try{ws.close()}catch(e){}relayReply(conn,{t:'car-relay-closed',reason},rid)}
+function closeAllRelayedCars(){for(const conn of peerGuests)closeRelayedCar(conn,'host_disconnected')}
 function handleRelayHostMessage(conn,data){
  if(!data||typeof data.t!=='string'||!data.t.startsWith('car-relay-'))return false;
  if(!peerGuests.has(conn))return true;
  if(data.t==='car-relay-open'){
-  if(conn._carRelay){peerSafeSend(conn,{t:'car-relay-closed'});return true}
-  let ip=connectedCarAddress?.ip||'',code=connectedCarAddress?.code||'';if(peerRole!=='host'||!carConnected||!carCalSupported||!carCalibration||peerCodeValue!==code||!validLocalIP(ip)||!/^\d{6}$/.test(code)){peerSafeSend(conn,{t:'car-relay-closed'});return true}
-  let ws;try{try{ws=new WebSocket(`ws://${ip}:81/`,{targetAddressSpace:'local'})}catch(e){if(!['SyntaxError','TypeError'].includes(e?.name))throw e;ws=new WebSocket(`ws://${ip}:81/`)}}catch(e){peerSafeSend(conn,{t:'car-relay-closed'});return true}
-  conn._carRelay=ws;conn._relayProbe=null;conn._relayOwner=false;conn._relayLast=Date.now();conn._relayWatchdog=setInterval(()=>{if(conn._carRelay===ws&&conn._relayOwner&&Date.now()-conn._relayLast>550)closeRelayedCar(conn)},100);
-  ws.onopen=()=>{if(conn._carRelay===ws)peerSafeSend(conn,{t:'car-relay-opened'})};
-  ws.onmessage=e=>{if(conn._carRelay!==ws||typeof e.data!=='string')return;if(e.data.startsWith('STATE:')){conn._relayOwner=e.data==='STATE:OWNER';if(conn._relayOwner)conn._relayLast=Date.now()}if(conn._relayProbe&&e.data.startsWith('CAL:')){peerSafeSend(conn,{t:'car-relay-pong',id:conn._relayProbe.id});conn._relayProbe=null}if(!peerSafeSend(conn,{t:'car-relay-data',value:e.data}))closeRelayedCar(conn)};
-  ws.onerror=()=>{if(conn._carRelay===ws){peerSafeSend(conn,{t:'car-relay-closed'});closeRelayedCar(conn)}};
-  ws.onclose=()=>{if(conn._carRelay===ws){conn._carRelay=null;conn._relayProbe=null;clearInterval(conn._relayWatchdog);conn._relayWatchdog=null;peerSafeSend(conn,{t:'car-relay-closed'})}};return true
+  let rid=typeof data.rid==='string'&&/^[a-f0-9]{16}$/.test(data.rid)?data.rid:null;
+  relayReply(conn,{t:'car-relay-received'},rid);
+  if(conn._carRelay){if(!rid||rid===conn._relayId){relayReply(conn,{t:'car-relay-closed',reason:'busy'},rid);return true}closeRelayedCar(conn,'replaced')}
+  let ip=connectedCarAddress?.ip||'',code=connectedCarAddress?.code||'';
+  if(peerRole!=='host'||!carConnected){relayReply(conn,{t:'car-relay-closed',reason:'host_disconnected'},rid);return true}
+  if(peerCodeValue!==code||!validLocalIP(ip)||!/^\d{6}$/.test(code)){relayReply(conn,{t:'car-relay-closed',reason:'wrong_car'},rid);return true}
+  if(!carCalSupported||!carCalibration){relayReply(conn,{t:'car-relay-closed',reason:'not_ready'},rid);return true}
+  let ws;try{try{ws=new WebSocket(`ws://${ip}:81/`,{targetAddressSpace:'local'})}catch(e){if(!['SyntaxError','TypeError'].includes(e?.name))throw e;ws=new WebSocket(`ws://${ip}:81/`)}}catch(e){relayReply(conn,{t:'car-relay-closed',reason:'socket_error'},rid);return true}
+  conn._carRelay=ws;conn._relayId=rid;conn._relayProbe=null;conn._relayOwner=false;conn._relayLast=Date.now();conn._relayWatchdog=setInterval(()=>{if(conn._carRelay===ws&&conn._relayOwner&&Date.now()-conn._relayLast>550)closeRelayedCar(conn,'watchdog')},100);
+  ws.onopen=()=>{if(conn._carRelay===ws)relayReply(conn,{t:'car-relay-opened'},rid)};
+  ws.onmessage=e=>{if(conn._carRelay!==ws||typeof e.data!=='string')return;if(e.data.startsWith('STATE:')){conn._relayOwner=e.data==='STATE:OWNER';if(conn._relayOwner)conn._relayLast=Date.now()}if(conn._relayProbe&&e.data.startsWith('CAL:')){relayReply(conn,{t:'car-relay-pong',id:conn._relayProbe.id},rid);conn._relayProbe=null}if(!relayReply(conn,{t:'car-relay-data',value:e.data},rid))closeRelayedCar(conn,'peer_disconnected')};
+  ws.onerror=()=>{if(conn._carRelay===ws)closeRelayedCar(conn,'socket_error')};
+  ws.onclose=()=>{if(conn._carRelay===ws){conn._carRelay=null;conn._relayId=null;conn._relayProbe=null;clearInterval(conn._relayWatchdog);conn._relayWatchdog=null;relayReply(conn,{t:'car-relay-closed',reason:'socket_error'},rid)}};return true
  }
- let ws=conn._carRelay;if(data.t==='car-relay-close'){closeRelayedCar(conn);return true}
+ if(data.rid&&data.rid!==conn._relayId)return true;
+ let ws=conn._carRelay;if(data.t==='car-relay-close'){closeRelayedCar(conn,'closed');return true}
  if(!ws||ws.readyState!==WebSocket.OPEN)return true;
- if(conn._relayOwner&&Date.now()-conn._relayLast>550){closeRelayedCar(conn);return true}
- if(ws.bufferedAmount>2048){closeRelayedCar(conn);peerSafeSend(conn,{t:'car-relay-closed'});return true}
+ if(conn._relayOwner&&Date.now()-conn._relayLast>550){closeRelayedCar(conn,'watchdog');return true}
+ if(ws.bufferedAmount>2048){closeRelayedCar(conn,'buffered');return true}
  if(data.t==='car-relay-ping'){if(Number.isSafeInteger(data.id)&&(!conn._relayProbe||Date.now()-conn._relayProbe.at>3000)){conn._relayProbe={id:data.id,at:Date.now()};ws.send('CALCLIENT:1')}return true}
  if(data.t==='car-relay-data'&&typeof data.value==='string'&&data.value.length<=1100){let value=data.value;if(value.startsWith('AUTH:'))value='AUTH:'+(connectedCarAddress?.code||'');if(/^(AUTH:\d{6}|CALCLIENT:1|CLAIM|RELEASE|ESTOP|STOP|PING|(?:R|L):-?\d{1,3},-?\d{1,3}|P:-?\d{1,3},-?\d{1,3},-?\d{1,2}|CALSET:\d+,\d+,\d+,\d+,\d+,-?\d+)$/.test(value)){conn._relayLast=Date.now();ws.send(value)}}return true
 }
 function handleRelayGuestMessage(data){
- if(!data.t.startsWith('car-relay-'))return false;let ws=relayClient;if(!ws)return true;
+ if(!data.t.startsWith('car-relay-'))return false;let ws=relayClient;if(!ws)return true;if(data.rid&&data.rid!==ws.rid)return true;
+ if(data.t==='car-relay-received'&&ws.readyState===0){diagnosticLog('組長已收到請求，正在連線小車。');return true}
  if(data.t==='car-relay-opened'&&ws.readyState===0){ws.readyState=1;ws.onopen?.();return true}
  if(data.t==='car-relay-data'&&typeof data.value==='string'&&ws.readyState===1){ws.onmessage?.({data:data.value});return true}
  if(data.t==='car-relay-pong'&&relayLatencyPending?.id===data.id){let ms=Math.round(performance.now()-relayLatencyPending.start);relayLatencyPending=null;$('#relayLatency').textContent='小車往返時間：約 '+ms+' 毫秒';$('#relayLatencyCar').textContent=$('#relayLatency').textContent;$('#relayLatencyController').textContent='往返 '+ms+' ms';return true}
- if(data.t==='car-relay-closed'){if(!carConnected)diagnosticLog('無法透過組長連線：請確認組長已連上同一台小車。');ws._closed();return true}return true
+ if(data.t==='car-relay-closed'){
+  const reasons={host_disconnected:'組長尚未連上小車，或已與小車斷線。',wrong_car:'組長連上的小車與小組配對碼不一致。',not_ready:'組長的小車資料還沒準備好，請稍後再試。',socket_error:'組長無法建立另一條小車連線；可能是網路中斷或小車連線數已滿。',watchdog:'控制訊息暫停太久，已斷開轉送。',buffered:'網路訊息暫時積壓，已斷開轉送。',busy:'轉送連線仍在關閉，請稍後再試。'};
+  let reason=reasons[data.reason]||'轉送連線已關閉。';diagnosticLog(reason);ws._closed();if(peerRole==='guest')peerStatusText(reason);return true
+ }return true
 }
 function stopRelayLatency(){clearInterval(relayLatencyTimer);relayLatencyTimer=null;relayLatencyPending=null;$('#relayLatency').hidden=true;$('#relayLatencyCar').hidden=true;$('#relayLatencyController').hidden=true}
-function startRelayLatency(){stopRelayLatency();$('#relayLatency').hidden=false;$('#relayLatencyCar').hidden=false;$('#relayLatencyController').hidden=false;$('#relayLatencyController').textContent='測量中';$('#relayLatency').textContent='正在測量小車往返時間…';$('#relayLatencyCar').textContent=$('#relayLatency').textContent;let tick=()=>{if(!relayClient||relayClient.readyState!==1||!carConnected||!peerUpstream?.open)return;if(relayLatencyPending&&performance.now()-relayLatencyPending.start<3000)return;if(relayLatencyPending){$('#relayLatency').textContent='小車往返時間：暫時無法測量';$('#relayLatencyCar').textContent=$('#relayLatency').textContent;$('#relayLatencyController').textContent='測量逾時'}let id=++relayLatencySequence;relayLatencyPending={id,start:performance.now()};if(!peerSafeSend(peerUpstream,{t:'car-relay-ping',id}))relayClient.close()};relayLatencyTimer=setInterval(tick,3000)}
+function startRelayLatency(){stopRelayLatency();$('#relayLatency').hidden=false;$('#relayLatencyCar').hidden=false;$('#relayLatencyController').hidden=false;$('#relayLatencyController').textContent='測量中';$('#relayLatency').textContent='正在測量小車往返時間…';$('#relayLatencyCar').textContent=$('#relayLatency').textContent;let tick=()=>{if(!relayClient||relayClient.readyState!==1||!carConnected||!peerUpstream?.open)return;if(relayLatencyPending&&performance.now()-relayLatencyPending.start<3000)return;if(relayLatencyPending){$('#relayLatency').textContent='小車往返時間：暫時無法測量';$('#relayLatencyCar').textContent=$('#relayLatency').textContent;$('#relayLatencyController').textContent='測量逾時'}let id=++relayLatencySequence;relayLatencyPending={id,start:performance.now()};if(!peerSafeSend(peerUpstream,{t:'car-relay-ping',id,rid:relayClient.rid}))relayClient.close()};relayLatencyTimer=setInterval(tick,3000)}
 $('#connectViaPeer').onclick=()=>{
  if(peerRole!=='guest'||!peerUpstream?.open||carConnected||relayClient)return;let code=peerCodeValue;if(!/^\d{6}$/.test(code))return;
- startCarDiagnostics();diagnosticLog('透過組長連線小車。');let ws={readyState:0,get bufferedAmount(){return peerUpstream?.dataChannel?.bufferedAmount||0},send(value){if(this.readyState!==1||!peerSafeSend(peerUpstream,{t:'car-relay-data',value}))this.close()},close(){if(this.readyState>=2)return;if(peerUpstream?.open)peerSafeSend(peerUpstream,{t:'car-relay-close'});this._closed()},_closed(){if(this.readyState===3)return;this.readyState=3;if(relayClient===this)relayClient=null;this.onclose?.({code:1006})}};
- relayClient=ws;attachCarSocket(ws,'',code,true);paintPeer();if(!peerSafeSend(peerUpstream,{t:'car-relay-open'}))ws.close()
+ startCarDiagnostics();diagnosticLog('透過組長連線小車。');let rid=Array.from(crypto.getRandomValues(new Uint8Array(8)),x=>x.toString(16).padStart(2,'0')).join('');let ws={rid,readyState:0,get bufferedAmount(){return peerUpstream?.dataChannel?.bufferedAmount||0},send(value){if(this.readyState!==1||!peerSafeSend(peerUpstream,{t:'car-relay-data',value,rid:this.rid}))this.close()},close(){if(this.readyState>=2)return;if(peerUpstream?.open)peerSafeSend(peerUpstream,{t:'car-relay-close',rid:this.rid});this._closed()},_closed(){if(this.readyState===3)return;this.readyState=3;if(relayClient===this)relayClient=null;this.onclose?.({code:1006})}};
+ relayClient=ws;attachCarSocket(ws,'',code,true);paintPeer();if(!peerSafeSend(peerUpstream,{t:'car-relay-open',rid}))ws.close()
 };
 
 function peerStatusText(text){peerStatus.textContent=text;$('#connectionPeerTabStatus').textContent=peerRole==='host'?'已建立':peerRole==='guest'?'已加入':peerStarting?'連線中':peerNode?'待加入':'未加入'}
